@@ -1,0 +1,18 @@
+name: Track Deployment Result
+
+on:
+  deployment_status:
+
+jobs:
+  track-result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Log Result
+        run: |
+          STATUS="${{ github.event.deployment_status.state }}"
+          echo "상태: $STATUS"
+          if [ "$STATUS" = "success" ]; then
+            echo "✅ Deployment succeeded"
+          else
+            echo "❌ Deployment failed"
+          fi
