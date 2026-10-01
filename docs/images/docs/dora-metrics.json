@@ -1,28 +1,9 @@
 {
   "repository": "wijiseung04-blip/donga",
-  "generatedAt": "2026-10-01T14:20:49.915191Z",
+  "generatedAt": "2026-10-01T14:30:00.834627Z",
   "rangeWeeks": 12,
   "environments": [],
   "weekly": [
-
-
-    { "weekStart": "2026-07-06", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-07-13", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-07-20", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-07-27", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-08-03", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-08-10", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-08-17", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-08-24", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-08-31", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-09-07", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": 0.0055, "leadTimeSamples": 5, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-09-14", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 },
-    { "weekStart": "2026-09-21", "deployments": 0, "successfulDeployments": 0, "failures": 0, "leadTimeHours": null, "leadTimeSamples": 0, "restoreHours": null, "restoreSamples": 0 }
-  ]
-}
-
-
-
     {
       "weekStart": "2026-07-06",
       "deployments": 0,
@@ -145,4 +126,3 @@
     }
   ]
 }
-
