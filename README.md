@@ -86,3 +86,7 @@ StudyMate는 이러한 문제를 해결하기 위해 스터디 모집부터 일�
 | **14주차** | 예외 처리 및 테스트 |
 | **15주차** | UI 개선 및 기능 보완 |
 | **16주차** | 최종 테스트 및 프로젝트 완성 |
+
+## DORA 대시보드
+
+![DORA Metrics Dashboard](docs/images/dashboard-preview.png)

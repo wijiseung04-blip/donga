@@ -14,6 +14,7 @@ from urllib.request import Request, urlopen
 
 WEEK_COUNT = 12
 OUTPUT_PATH = Path("docs/images/docs/dora-metrics.json")
+REPORT_PATH = OUTPUT_PATH.with_name("dora-weekly-report.md")
 API_BASE = "https://api.github.com"
 
 
@@ -178,6 +179,81 @@ def build_metrics(
     }
 
 
+def render_weekly_report(metrics: dict[str, object]) -> str:
+    weeks = metrics["weekly"]
+    if not isinstance(weeks, list) or not weeks:
+        raise ValueError("DORA metrics must contain at least one weekly row")
+
+    def weighted_average(value_key: str, samples_key: str) -> tuple[float | None, int]:
+        sample_count = sum(int(week.get(samples_key, 0)) for week in weeks)
+        if not sample_count:
+            return None, 0
+        total = sum(
+            float(week[value_key] or 0) * int(week.get(samples_key, 0))
+            for week in weeks
+        )
+        return total / sample_count, sample_count
+
+    def display(value: float | None, unit: str = "") -> str:
+        return "데이터 없음" if value is None else f"{value:.4g}{unit}"
+
+    total_deployments = sum(int(week.get("deployments", 0)) for week in weeks)
+    successful_deployments = sum(int(week.get("successfulDeployments", 0)) for week in weeks)
+    failures = sum(int(week.get("failures", 0)) for week in weeks)
+    lead_time, lead_samples = weighted_average("leadTimeHours", "leadTimeSamples")
+    restore_time, restore_samples = weighted_average("restoreHours", "restoreSamples")
+    failure_rate = failures / total_deployments * 100 if total_deployments else None
+    average_frequency = successful_deployments / len(weeks)
+
+    lines = [
+        "# DORA 주간 보고서",
+        "",
+        f"- 저장소: {metrics.get('repository') or '알 수 없음'}",
+        f"- 생성 시각(UTC): {metrics.get('generatedAt', '알 수 없음')}",
+        f"- 집계 기간: 최근 완료된 {len(weeks)}주",
+        "",
+        "## 기간 요약",
+        "",
+        "| 지표 | 결과 |",
+        "| --- | ---: |",
+        f"| 변경 리드 타임 | {display(lead_time, '시간')} ({lead_samples}개 PR) |",
+        f"| 배포 빈도 | {display(average_frequency, '회/주')} ({successful_deployments}회 성공 배포) |",
+        f"| 변경 실패율 | {display(failure_rate, '%')} ({failures}/{total_deployments}건) |",
+        f"| 평균 복구 시간 | {display(restore_time, '시간')} ({restore_samples}건) |",
+        "",
+        "## 주별 추이",
+        "",
+        "| 주 시작 | 성공 배포 | 실패 배포 | 실패율 | 리드 타임 | 복구 시간 |",
+        "| --- | ---: | ---: | ---: | ---: | ---: |",
+    ]
+
+    for week in weeks:
+        deployments = int(week.get("deployments", 0))
+        week_failures = int(week.get("failures", 0))
+        week_failure_rate = week_failures / deployments * 100 if deployments else None
+        lead_value = week.get("leadTimeHours") if week.get("leadTimeSamples") else None
+        restore_value = week.get("restoreHours") if week.get("restoreSamples") else None
+        lines.append(
+            "| {week} | {successes} | {failures} | {rate} | {lead} | {restore} |".format(
+                week=week["weekStart"],
+                successes=week.get("successfulDeployments", 0),
+                failures=week_failures,
+                rate=display(week_failure_rate, "%"),
+                lead=display(lead_value, "시간"),
+                restore=display(restore_value, "시간"),
+            )
+        )
+
+    lines.extend(
+        [
+            "",
+            "배포 지표는 GitHub Deployments 기록 기준입니다. 리드 타임은 PR 생성부터 병합까지 계산합니다.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def collect(api: GitHubApi, now: datetime | None = None) -> dict[str, object]:
     pulls = api.list_all("/pulls?state=closed&per_page=100")
     deployments = api.list_all("/deployments?per_page=100")
@@ -214,7 +290,8 @@ def main() -> None:
     metrics = collect(GitHubApi(repository, token))
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
     OUTPUT_PATH.write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    print(f"Wrote {len(metrics['weekly'])} weeks of DORA data to {OUTPUT_PATH}")
+    REPORT_PATH.write_text(render_weekly_report(metrics), encoding="utf-8")
+    print(f"Wrote {len(metrics['weekly'])} weeks of DORA data to {OUTPUT_PATH} and {REPORT_PATH}")
 
 
 if __name__ == "__main__":
