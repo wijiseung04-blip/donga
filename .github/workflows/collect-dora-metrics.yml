@@ -37,7 +37,6 @@ jobs:
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DORA_ENVIRONMENTS: production
 
       - name: Publish dashboard data
         env:

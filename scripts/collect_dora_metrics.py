@@ -87,6 +87,7 @@ def build_metrics(
         }
         for week in week_starts
     }
+    included_environments: set[str] = set()
 
     for pull in pulls:
         merged_at = pull.get("merged_at")
@@ -114,6 +115,7 @@ def build_metrics(
         environment = str(deployment.get("environment", "production"))
         if environments and environment.lower() not in environments:
             continue
+        included_environments.add(environment)
         row = rows[week]
         statuses = deployment.get("statuses", [])
         if not isinstance(statuses, list):
@@ -171,7 +173,7 @@ def build_metrics(
         "repository": os.environ.get("GITHUB_REPOSITORY", ""),
         "generatedAt": now.isoformat().replace("+00:00", "Z"),
         "rangeWeeks": WEEK_COUNT,
-        "environments": sorted(environments) if environments else [],
+        "environments": sorted(included_environments),
         "weekly": list(rows.values()),
     }
 
@@ -183,7 +185,7 @@ def collect(api: GitHubApi, now: datetime | None = None) -> dict[str, object]:
     first_week = _week_start(current_time) - timedelta(weeks=WEEK_COUNT)
     environments = {
         name.strip().lower()
-        for name in os.environ.get("DORA_ENVIRONMENTS", "production").split(",")
+        for name in os.environ.get("DORA_ENVIRONMENTS", "").split(",")
         if name.strip()
     }
     relevant_deployments = []
@@ -191,7 +193,7 @@ def collect(api: GitHubApi, now: datetime | None = None) -> dict[str, object]:
         created_at = deployment.get("created_at")
         if not isinstance(created_at, str) or _week_start(parse_timestamp(created_at)) < first_week:
             continue
-        if str(deployment.get("environment", "production")).lower() not in environments:
+        if environments and str(deployment.get("environment", "production")).lower() not in environments:
             continue
         deployment_id = deployment.get("id")
         if deployment_id is None:
