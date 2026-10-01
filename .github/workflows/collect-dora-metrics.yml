@@ -1,0 +1,54 @@
+name: Collect DORA Metrics
+
+on:
+  pull_request:
+    types: [closed]
+  deployment_status:
+  schedule:
+    - cron: '13 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: read
+  pull-requests: read
+
+concurrency:
+  group: dora-metrics-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Collect weekly DORA metrics
+        run: python scripts/collect_dora_metrics.py
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DORA_ENVIRONMENTS: production
+
+      - name: Publish dashboard data
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/images/docs/dora-metrics.json
+          if git diff --cached --quiet; then
+            echo "DORA metrics have not changed."
+            exit 0
+          fi
+          git commit -m "chore: update DORA dashboard data"
+          git push origin "HEAD:${DEFAULT_BRANCH}"

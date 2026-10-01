@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>DORA 지표 대시보드</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+	<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+	<style>
+		:root {
+			color-scheme: light;
+			--ink: #18343a;
+			--muted: #647579;
+			--line: #dce5e1;
+			--paper: #f2f5f1;
+			--white: #fff;
+			--green: #18776b;
+			--green-soft: #e3f1ed;
+			--coral: #cb624d;
+			--gold: #c89727;
+		}
+		* { box-sizing: border-box; }
+		body {
+			margin: 0;
+			min-height: 100vh;
+			background-color: var(--paper);
+			background-image: linear-gradient(rgba(24, 52, 58, .025) 1px, transparent 1px), linear-gradient(90deg, rgba(24, 52, 58, .025) 1px, transparent 1px);
+			background-size: 28px 28px;
+			color: var(--ink);
+			font-family: 'IBM Plex Sans', 'Segoe UI', sans-serif;
+		}
+		button { font: inherit; }
+		.shell { width: min(1240px, calc(100% - 48px)); margin: 0 auto; padding: 38px 0 52px; }
+		.topline { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 34px; }
+		.brand { display: flex; align-items: center; gap: 12px; }
+		.brand-mark {
+			display: grid;
+			width: 42px;
+			aspect-ratio: 1;
+			place-items: center;
+			border-radius: 8px;
+			background: var(--ink);
+			color: white;
+			font-size: 15px;
+			font-weight: 700;
+		}
+		.brand-name { font-size: 14px; font-weight: 700; }
+		.brand-context { margin-top: 2px; color: var(--muted); font-size: 12px; }
+		.demo-label { display: inline-flex; align-items: center; gap: 8px; color: #775911; font-size: 12px; font-weight: 600; }
+		.demo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
+		.live-label { color: var(--green); }
+		.live-dot { background: var(--green); }
+		.heading-row { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+		.eyebrow { margin: 0 0 8px; color: var(--green); font-size: 12px; font-weight: 700; text-transform: uppercase; }
+		h1 { margin: 0; font-size: 32px; line-height: 1.15; }
+		.subtitle { margin: 9px 0 0; color: var(--muted); font-size: 14px; }
+		.period-control { display: inline-flex; padding: 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); }
+		.period-control button { min-width: 62px; padding: 8px 12px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); cursor: pointer; font-size: 13px; }
+		.period-control button[aria-pressed="true"] { background: var(--ink); color: white; }
+		.metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+		.metric {
+			min-width: 0;
+			padding: 20px;
+			border: 1px solid var(--line);
+			border-top: 3px solid var(--green);
+			border-radius: 6px;
+			background: var(--white);
+		}
+		.metric:nth-child(2) { border-top-color: var(--gold); }
+		.metric:nth-child(3) { border-top-color: var(--coral); }
+		.metric:nth-child(4) { border-top-color: #477c9a; }
+		.metric-label { min-height: 38px; color: var(--muted); font-size: 13px; font-weight: 600; }
+		.metric-label span { display: block; margin-top: 2px; color: #829092; font-size: 11px; font-weight: 400; }
+		.metric-value { margin-top: 15px; font-size: 34px; font-weight: 600; line-height: 1; font-variant-numeric: tabular-nums; }
+		.metric-unit { margin-left: 5px; color: var(--muted); font-size: 13px; font-weight: 400; }
+		.metric-foot { margin-top: 12px; color: var(--muted); font-size: 12px; }
+		.chart-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 14px; }
+		.chart-panel { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); }
+		.panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
+		.panel-heading h2 { margin: 0; font-size: 16px; }
+		.panel-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+		.legend-note { color: var(--muted); font-size: 11px; white-space: nowrap; }
+		.chart-wrap { position: relative; height: 278px; }
+		.footnote { margin: 16px 2px 0; color: #69797b; font-size: 12px; line-height: 1.6; }
+		@media (max-width: 900px) {
+			.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+			.chart-grid { grid-template-columns: 1fr; }
+		}
+		@media (max-width: 560px) {
+			.shell { width: min(100% - 28px, 1240px); padding-top: 24px; }
+			.topline { margin-bottom: 26px; }
+			.heading-row { align-items: start; flex-direction: column; }
+			h1 { font-size: 27px; }
+			.metrics { gap: 9px; }
+			.metric { padding: 15px; }
+			.metric-label { min-height: 42px; font-size: 12px; }
+			.metric-value { font-size: 29px; }
+			.chart-panel { padding: 16px; }
+			.chart-wrap { height: 240px; }
+			.legend-note { display: none; }
+		}
+		@media (prefers-reduced-motion: no-preference) {
+			.shell { animation: arrive .45s ease-out both; }
+			@keyframes arrive { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+		}
+	</style>
+</head>
+<body>
+	<main class="shell">
+		<div class="topline">
+			<div class="brand">
+				<div class="brand-mark" aria-hidden="true">D4</div>
+				<div>
+					<div class="brand-name">Engineering Metrics</div>
+					<div class="brand-context">GitHub Actions · donga</div>
+				</div>
+			</div>
+			<div class="demo-label" id="dataBadge"><span class="demo-dot" aria-hidden="true"></span><span id="dataMode">시안 데이터</span></div>
+		</div>
+
+		<section class="heading-row" aria-labelledby="page-title">
+			<div>
+				<p class="eyebrow">Delivery performance</p>
+				<h1 id="page-title">DORA 지표 한눈에 보기</h1>
+				<p class="subtitle" id="periodSummary">최근 4주 기준 · 주간 집계</p>
+			</div>
+			<div class="period-control" role="group" aria-label="조회 기간">
+				<button type="button" data-weeks="4" aria-pressed="true">4주</button>
+				<button type="button" data-weeks="8" aria-pressed="false">8주</button>
+				<button type="button" data-weeks="12" aria-pressed="false">12주</button>
+			</div>
+		</section>
+
+		<section class="metrics" aria-label="DORA 핵심 지표">
+			<article class="metric">
+				<div class="metric-label">변경 리드 타임<span>Lead time for changes</span></div>
+				<div class="metric-value"><span id="leadTimeValue">--</span><span class="metric-unit">시간</span></div>
+				<div class="metric-foot">PR 생성부터 병합까지 평균</div>
+			</article>
+			<article class="metric">
+				<div class="metric-label">배포 빈도<span>Deployment frequency</span></div>
+				<div class="metric-value"><span id="frequencyValue">--</span><span class="metric-unit">회/주</span></div>
+				<div class="metric-foot">주간 평균 성공 배포</div>
+			</article>
+			<article class="metric">
+				<div class="metric-label">변경 실패율<span>Change failure rate</span></div>
+				<div class="metric-value"><span id="failureRateValue">--</span><span class="metric-unit">%</span></div>
+				<div class="metric-foot">실패 배포 ÷ 전체 배포</div>
+			</article>
+			<article class="metric">
+				<div class="metric-label">평균 복구 시간<span>Mean time to restore</span></div>
+				<div class="metric-value"><span id="restoreTimeValue">--</span><span class="metric-unit">시간</span></div>
+				<div class="metric-foot">실패 배포 복구까지 걸린 시간</div>
+			</article>
+		</section>
+
+		<section class="chart-grid" aria-label="배포 추이">
+			<article class="chart-panel">
+				<div class="panel-heading">
+					<div>
+						<h2>배포 빈도 추이</h2>
+						<p>주차별 성공 및 실패 배포 건수</p>
+					</div>
+					<div class="legend-note">단위: 건</div>
+				</div>
+				<div class="chart-wrap"><canvas id="deploymentChart" aria-label="주차별 배포 추이"></canvas></div>
+			</article>
+			<article class="chart-panel">
+				<div class="panel-heading">
+					<div>
+						<h2>변경 안정성</h2>
+						<p>주차별 실패 배포와 변경 실패율</p>
+					</div>
+					<div class="legend-note">실패 배포 / 전체 배포</div>
+				</div>
+				<div class="chart-wrap"><canvas id="failureChart" aria-label="주차별 변경 실패율"></canvas></div>
+			</article>
+		</section>
+
+		<p class="footnote" id="sourceNote">표시 데이터는 화면 확인을 위한 예시입니다. GitHub Actions가 수집한 JSON이 생성되면 실제 데이터로 자동 전환됩니다.</p>
+	</main>
+	<script>
+		// Replace this preview dataset with the collected weekly DORA records.
+		const doraData = {
+			weekly: [
+				{ deployments: 5, failures: 1, leadTimeHours: 3.1, restoreHours: 2.0 },
+				{ deployments: 6, failures: 0, leadTimeHours: 2.9, restoreHours: 0 },
+				{ deployments: 4, failures: 1, leadTimeHours: 2.8, restoreHours: 1.4 },
+				{ deployments: 7, failures: 1, leadTimeHours: 2.6, restoreHours: 1.2 },
+				{ deployments: 6, failures: 0, leadTimeHours: 2.5, restoreHours: 0 },
+				{ deployments: 8, failures: 1, leadTimeHours: 2.4, restoreHours: 1.6 },
+				{ deployments: 7, failures: 1, leadTimeHours: 2.6, restoreHours: 1.1 },
+				{ deployments: 5, failures: 0, leadTimeHours: 2.3, restoreHours: 0 },
+				{ deployments: 9, failures: 2, leadTimeHours: 2.2, restoreHours: 1.8 },
+				{ deployments: 8, failures: 1, leadTimeHours: 2.5, restoreHours: 1.3 },
+				{ deployments: 7, failures: 1, leadTimeHours: 2.3, restoreHours: 0.9 },
+				{ deployments: 8, failures: 1, leadTimeHours: 2.4, restoreHours: 1.2 }
+			]
+		};
+
+		let selectedWeeks = 4;
+		let labels = makeLabels(doraData.weekly);
+
+		function makeLabels(weeks) {
+			return weeks.map((week, index) => {
+				const weekStart = week.weekStart
+					? new Date(`${week.weekStart}T00:00:00Z`)
+					: new Date(Date.now() - (weeks.length - index) * 7 * 86400000);
+				return weekStart.toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric', timeZone: 'UTC' });
+			});
+		}
+		const chartDefaults = {
+			responsive: true,
+			maintainAspectRatio: false,
+			interaction: { mode: 'index', intersect: false },
+			plugins: {
+				legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 7, padding: 18 } }
+			},
+			scales: {
+				x: { grid: { display: false }, ticks: { color: '#647579', maxRotation: 0 } },
+				y: { beginAtZero: true, grid: { color: '#edf1ee' }, ticks: { precision: 0, color: '#647579' } }
+			}
+		};
+		const deploymentChart = new Chart(document.getElementById('deploymentChart'), {
+			type: 'bar',
+			data: {
+				labels,
+				datasets: [
+					{ label: '성공', data: [], backgroundColor: '#18776b', borderRadius: 3, stack: 'deployments' },
+					{ label: '실패', data: [], backgroundColor: '#cb624d', borderRadius: 3, stack: 'deployments' }
+				]
+			},
+			options: { ...chartDefaults, scales: { ...chartDefaults.scales, x: { ...chartDefaults.scales.x, stacked: true }, y: { ...chartDefaults.scales.y, stacked: true } } }
+		});
+		const failureChart = new Chart(document.getElementById('failureChart'), {
+			type: 'line',
+			data: {
+				labels,
+				datasets: [{
+					label: '변경 실패율',
+					data: [],
+					borderColor: '#c89727',
+					backgroundColor: 'rgba(200, 151, 39, .14)',
+					fill: true,
+					borderWidth: 2,
+					pointRadius: 3,
+					tension: .3
+				}]
+			},
+			options: {
+				...chartDefaults,
+				scales: {
+					...chartDefaults.scales,
+					y: { ...chartDefaults.scales.y, max: 100, ticks: { ...chartDefaults.scales.y.ticks, callback: value => `${value}%` } }
+				}
+			}
+		});
+
+		function renderDashboard(weeks) {
+			const rows = doraData.weekly.slice(-weeks);
+			const totalDeployments = rows.reduce((sum, row) => sum + row.deployments, 0);
+			const totalSuccessfulDeployments = rows.reduce((sum, row) => sum + (row.successfulDeployments ?? Math.max(0, row.deployments - row.failures)), 0);
+			const totalFailures = rows.reduce((sum, row) => sum + row.failures, 0);
+			const leadSamples = rows.reduce((sum, row) => sum + (row.leadTimeSamples ?? row.deployments), 0);
+			const restoreSamples = rows.reduce((sum, row) => sum + (row.restoreSamples ?? row.failures), 0);
+			const weightedLeadTime = leadSamples
+				? rows.reduce((sum, row) => sum + (row.leadTimeHours || 0) * (row.leadTimeSamples ?? row.deployments), 0) / leadSamples
+				: null;
+			const weightedRestoreTime = restoreSamples
+				? rows.reduce((sum, row) => sum + (row.restoreHours || 0) * (row.restoreSamples ?? row.failures), 0) / restoreSamples
+				: null;
+			const failureRates = rows.map(row => row.deployments ? (row.failures / row.deployments) * 100 : null);
+			const setValue = (id, value) => {
+				document.getElementById(id).textContent = Number.isFinite(value) ? value.toFixed(1) : '--';
+			};
+
+			setValue('leadTimeValue', weightedLeadTime);
+			document.getElementById('frequencyValue').textContent = (totalSuccessfulDeployments / rows.length).toFixed(1);
+			setValue('failureRateValue', totalDeployments ? (totalFailures / totalDeployments) * 100 : null);
+			setValue('restoreTimeValue', weightedRestoreTime);
+			document.getElementById('periodSummary').textContent = `최근 ${weeks}주 기준 · 주간 집계`;
+
+			const startIndex = doraData.weekly.length - rows.length;
+			const visibleLabels = labels.slice(startIndex);
+			deploymentChart.data.labels = visibleLabels;
+			deploymentChart.data.datasets[0].data = rows.map(row => row.successfulDeployments ?? Math.max(0, row.deployments - row.failures));
+			deploymentChart.data.datasets[1].data = rows.map(row => row.failures);
+			deploymentChart.update();
+			failureChart.data.labels = visibleLabels;
+			failureChart.data.datasets[0].data = failureRates;
+			failureChart.update();
+		}
+
+		async function loadCollectedMetrics() {
+			try {
+				const response = await fetch('dora-metrics.json', { cache: 'no-store' });
+				if (!response.ok) throw new Error(`HTTP ${response.status}`);
+				const metrics = await response.json();
+				if (!Array.isArray(metrics.weekly) || metrics.weekly.length === 0) {
+					throw new Error('weekly metrics are missing');
+				}
+				doraData.weekly = metrics.weekly;
+				labels = makeLabels(doraData.weekly);
+				deploymentChart.data.labels = labels;
+				failureChart.data.labels = labels;
+				document.getElementById('dataBadge').classList.replace('demo-label', 'live-label');
+				document.querySelector('#dataBadge .demo-dot').classList.add('live-dot');
+				document.getElementById('dataMode').textContent = '실제 GitHub 데이터';
+				const generatedAt = metrics.generatedAt ? new Date(metrics.generatedAt).toLocaleString('ko-KR') : '시각 정보 없음';
+				const environments = metrics.environments?.join(', ') || '설정된 배포 환경';
+				document.getElementById('sourceNote').textContent = `${metrics.repository || 'GitHub'}의 PR 생성·병합 시각과 ${environments} Deployments API를 집계했습니다. 마지막 갱신: ${generatedAt}.`;
+				renderDashboard(selectedWeeks);
+			} catch {
+				document.getElementById('sourceNote').textContent = '수집 데이터 파일을 불러오지 못해 시안 데이터를 표시 중입니다. GitHub Actions 실행 후 다시 확인하세요.';
+			}
+		}
+
+		document.querySelectorAll('[data-weeks]').forEach(button => {
+			button.addEventListener('click', () => {
+				document.querySelectorAll('[data-weeks]').forEach(item => item.setAttribute('aria-pressed', 'false'));
+				button.setAttribute('aria-pressed', 'true');
+				selectedWeeks = Number(button.dataset.weeks);
+				renderDashboard(selectedWeeks);
+			});
+		});
+		renderDashboard(4);
+		loadCollectedMetrics();
+	</script>
+</body>
+</html>
