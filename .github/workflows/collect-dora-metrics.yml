@@ -38,13 +38,23 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Upload DORA data artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dora-metrics-${{ github.run_id }}
+          path: |
+            docs/images/docs/dora-metrics.json
+            docs/images/docs/dora-weekly-report.md
+          if-no-files-found: error
+          retention-days: 90
+
       - name: Publish dashboard data
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/images/docs/dora-metrics.json
+          git add docs/images/docs/dora-metrics.json docs/images/docs/dora-weekly-report.md
           if git diff --cached --quiet; then
             echo "DORA metrics have not changed."
             exit 0

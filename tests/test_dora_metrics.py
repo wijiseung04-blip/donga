@@ -4,7 +4,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts.collect_dora_metrics import build_metrics
+from scripts.collect_dora_metrics import build_metrics, render_weekly_report
 
 
 def test_build_metrics_aggregates_lead_time_deployments_and_recovery():
@@ -38,6 +38,12 @@ def test_build_metrics_aggregates_lead_time_deployments_and_recovery():
     assert first_week["leadTimeSamples"] == 1
     assert first_week["restoreHours"] == 48
     assert first_week["restoreSamples"] == 1
+
+    report = render_weekly_report(metrics)
+    assert "| 변경 리드 타임 | 12시간 (1개 PR) |" in report
+    assert "| 변경 실패율 | 50% (1/2건) |" in report
+    assert "| 평균 복구 시간 | 48시간 (1건) |" in report
+    assert "| 주 시작 | 성공 배포 | 실패 배포 | 실패율 | 리드 타임 | 복구 시간 |" in report
 
 
 def test_build_metrics_returns_empty_periods_without_fake_values():
