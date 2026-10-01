@@ -78,15 +78,19 @@
 		.metric-foot { margin-top: 12px; color: var(--muted); font-size: 12px; }
 		.chart-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 14px; }
 		.chart-panel { min-width: 0; padding: 20px; border: 1px solid var(--line); border-radius: 6px; background: var(--white); }
+		.chart-panel.wide { grid-column: 1 / -1; }
 		.panel-heading { display: flex; align-items: start; justify-content: space-between; gap: 14px; margin-bottom: 18px; }
 		.panel-heading h2 { margin: 0; font-size: 16px; }
 		.panel-heading p { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
 		.legend-note { color: var(--muted); font-size: 11px; white-space: nowrap; }
 		.chart-wrap { position: relative; height: 278px; }
+		.chart-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 13px; pointer-events: none; }
+		[hidden] { display: none !important; }
 		.footnote { margin: 16px 2px 0; color: #69797b; font-size: 12px; line-height: 1.6; }
 		@media (max-width: 900px) {
 			.metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 			.chart-grid { grid-template-columns: 1fr; }
+			.chart-panel.wide { grid-column: auto; }
 		}
 		@media (max-width: 560px) {
 			.shell { width: min(100% - 28px, 1240px); padding-top: 24px; }
@@ -165,7 +169,10 @@
 					</div>
 					<div class="legend-note">단위: 건</div>
 				</div>
-				<div class="chart-wrap"><canvas id="deploymentChart" aria-label="주차별 배포 추이"></canvas></div>
+				<div class="chart-wrap">
+					<canvas id="deploymentChart" aria-label="주차별 배포 추이"></canvas>
+					<div class="chart-empty" id="deploymentEmpty" hidden>수집된 배포 기록이 없습니다</div>
+				</div>
 			</article>
 			<article class="chart-panel">
 				<div class="panel-heading">
@@ -176,6 +183,16 @@
 					<div class="legend-note">실패 배포 / 전체 배포</div>
 				</div>
 				<div class="chart-wrap"><canvas id="failureChart" aria-label="주차별 변경 실패율"></canvas></div>
+			</article>
+			<article class="chart-panel wide">
+				<div class="panel-heading">
+					<div>
+						<h2>변경 리드 타임 추이</h2>
+						<p>병합된 PR의 생성부터 병합까지 · 시간</p>
+					</div>
+					<div class="legend-note">단위: 시간</div>
+				</div>
+				<div class="chart-wrap"><canvas id="leadTimeChart" aria-label="주차별 변경 리드 타임"></canvas></div>
 			</article>
 		</section>
 
@@ -258,6 +275,32 @@
 			}
 		});
 
+		const leadTimeChart = new Chart(document.getElementById('leadTimeChart'), {
+			type: 'line',
+			data: {
+				labels,
+				datasets: [{
+					label: '변경 리드 타임',
+					data: [],
+					borderColor: '#477c9a',
+					backgroundColor: 'rgba(71, 124, 154, .14)',
+					fill: true,
+					borderWidth: 2,
+					pointRadius: 5,
+					pointHoverRadius: 7,
+					spanGaps: false,
+					tension: .25
+				}]
+			},
+			options: {
+				...chartDefaults,
+				scales: {
+					x: { ...chartDefaults.scales.x, ticks: { ...chartDefaults.scales.x.ticks, autoSkip: false } },
+					y: { ...chartDefaults.scales.y, ticks: { ...chartDefaults.scales.y.ticks, precision: 4 }, title: { display: true, text: '시간' } }
+				}
+			}
+		});
+
 		function renderDashboard(weeks) {
 			const rows = doraData.weekly.slice(-weeks);
 			const totalDeployments = rows.reduce((sum, row) => sum + row.deployments, 0);
@@ -276,7 +319,9 @@
 				document.getElementById(id).textContent = Number.isFinite(value) ? value.toFixed(1) : '--';
 			};
 
-			setValue('leadTimeValue', weightedLeadTime);
+			document.getElementById('leadTimeValue').textContent = Number.isFinite(weightedLeadTime)
+				? weightedLeadTime < 0.1 ? weightedLeadTime.toFixed(4) : weightedLeadTime.toFixed(1)
+				: '--';
 			document.getElementById('frequencyValue').textContent = (totalSuccessfulDeployments / rows.length).toFixed(1);
 			setValue('failureRateValue', totalDeployments ? (totalFailures / totalDeployments) * 100 : null);
 			setValue('restoreTimeValue', weightedRestoreTime);
@@ -287,10 +332,14 @@
 			deploymentChart.data.labels = visibleLabels;
 			deploymentChart.data.datasets[0].data = rows.map(row => row.successfulDeployments ?? Math.max(0, row.deployments - row.failures));
 			deploymentChart.data.datasets[1].data = rows.map(row => row.failures);
+			document.getElementById('deploymentEmpty').hidden = totalDeployments > 0;
 			deploymentChart.update();
 			failureChart.data.labels = visibleLabels;
 			failureChart.data.datasets[0].data = failureRates;
 			failureChart.update();
+			leadTimeChart.data.labels = visibleLabels;
+			leadTimeChart.data.datasets[0].data = rows.map(row => row.leadTimeSamples ? row.leadTimeHours : null);
+			leadTimeChart.update();
 		}
 
 		async function loadCollectedMetrics() {
@@ -305,6 +354,7 @@
 				labels = makeLabels(doraData.weekly);
 				deploymentChart.data.labels = labels;
 				failureChart.data.labels = labels;
+				leadTimeChart.data.labels = labels;
 				document.getElementById('dataBadge').classList.replace('demo-label', 'live-label');
 				document.querySelector('#dataBadge .demo-dot').classList.add('live-dot');
 				document.getElementById('dataMode').textContent = '실제 GitHub 데이터';
