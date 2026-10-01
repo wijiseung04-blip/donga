@@ -309,8 +309,11 @@
 				document.querySelector('#dataBadge .demo-dot').classList.add('live-dot');
 				document.getElementById('dataMode').textContent = '실제 GitHub 데이터';
 				const generatedAt = metrics.generatedAt ? new Date(metrics.generatedAt).toLocaleString('ko-KR') : '시각 정보 없음';
-				const environments = metrics.environments?.join(', ') || '설정된 배포 환경';
-				document.getElementById('sourceNote').textContent = `${metrics.repository || 'GitHub'}의 PR 생성·병합 시각과 ${environments} Deployments API를 집계했습니다. 마지막 갱신: ${generatedAt}.`;
+				const environments = metrics.environments?.length ? metrics.environments.join(', ') : '환경 이름 정보 없음';
+				const deploymentCount = metrics.weekly.reduce((sum, week) => sum + (week.deployments || 0), 0);
+				document.getElementById('sourceNote').textContent = deploymentCount
+					? `${metrics.repository || 'GitHub'}의 PR 기록과 ${environments} 배포 기록을 집계했습니다. 마지막 갱신: ${generatedAt}.`
+					: `${metrics.repository || 'GitHub'}의 수집 파일은 읽었지만 기간 내 GitHub 배포 기록이 없습니다. 실제 배포를 Actions에 연결하면 지표가 표시됩니다. 마지막 갱신: ${generatedAt}.`;
 				renderDashboard(selectedWeeks);
 			} catch {
 				document.getElementById('sourceNote').textContent = '수집 데이터 파일을 불러오지 못해 시안 데이터를 표시 중입니다. GitHub Actions 실행 후 다시 확인하세요.';

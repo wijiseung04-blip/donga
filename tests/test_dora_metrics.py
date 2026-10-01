@@ -74,3 +74,8 @@ def test_build_metrics_filters_to_configured_deployment_environments():
 
     assert metrics["weekly"][0]["deployments"] == 1
     assert metrics["environments"] == ["production"]
+
+    all_environments = build_metrics([], deployments, now=now)
+
+    assert all_environments["weekly"][0]["deployments"] == 2
+    assert all_environments["environments"] == ["production", "staging"]
