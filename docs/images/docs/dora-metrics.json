@@ -1,19 +1,9 @@
 {
   "repository": "wijiseung04-blip/donga",
-  "generatedAt": "2026-10-01T14:39:35.186575Z",
+  "generatedAt": "2026-10-05T05:32:09.934576Z",
   "rangeWeeks": 12,
   "environments": [],
   "weekly": [
-    {
-      "weekStart": "2026-07-06",
-      "deployments": 0,
-      "successfulDeployments": 0,
-      "failures": 0,
-      "leadTimeHours": null,
-      "leadTimeSamples": 0,
-      "restoreHours": null,
-      "restoreSamples": 0
-    },
     {
       "weekStart": "2026-07-13",
       "deployments": 0,
@@ -121,6 +111,16 @@
       "failures": 0,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
+      "restoreHours": null,
+      "restoreSamples": 0
+    },
+    {
+      "weekStart": "2026-09-28",
+      "deployments": 0,
+      "successfulDeployments": 0,
+      "failures": 0,
+      "leadTimeHours": 0.0095,
+      "leadTimeSamples": 8,
       "restoreHours": null,
       "restoreSamples": 0
     }
