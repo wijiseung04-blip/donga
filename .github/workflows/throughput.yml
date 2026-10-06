@@ -16,7 +16,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # GitHub CLI를 사용하여 닫힌 이슈 조회 및 카운트
-          CLOSED_ISSUES=$(gh issue list --state closed \
+          CLOSED_ISSUES=$(gh issue list --repo "$GITHUB_REPOSITORY" --state closed \
             --json closedAt \
             --jq 'length')
 
