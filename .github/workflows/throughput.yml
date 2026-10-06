@@ -2,7 +2,8 @@ name: Weekly Throughput
 
 on:
   schedule:
-    - cron: '0 0 * * 0' # 매주 일요일 자정 실행
+    - cron: '0 0 * * 0' # 매주 일요일 자정(UTC) 실행
+  workflow_dispatch:
 
 jobs:
   calculate-throughput:
@@ -15,9 +16,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # GitHub CLI를 사용하여 닫힌 이슈 조회 및 카운트
-          CLOSED_ISSUES=$(gh issue list --repo "$GITHUB_REPOSITORY" --state closed \
+          SINCE=$(date -u -d '7 days ago' '+%Y-%m-%dT%H:%M:%SZ')
+
+          CLOSED_ISSUES=$(gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state closed \
+            --limit 1000 \
             --json closedAt \
-            --jq 'length')
+            --jq "[.[] | select(.closedAt != null and .closedAt >= \"$SINCE\")] | length")
 
           echo "Weekly throughput: ${CLOSED_ISSUES} closed issues"
