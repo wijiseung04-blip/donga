@@ -1,0 +1,17 @@
+# GitHub GraphQL API로 완료 이슈 수집
+query ($owner: String!, $repo: String!) {
+  repository(owner: $owner, name: $repo) {
+    issues(first: 100, states: CLOSED) {
+      nodes {
+        title
+        createdAt
+        closedAt
+        labels(first: 10) {
+          nodes {
+            name
+          }
+        }
+      }
+    }
+  }
+}
