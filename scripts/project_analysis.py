@@ -96,6 +96,8 @@ def compute_burndown(
 ) -> dict:
     start_day = date.fromisoformat(str(sprint_start)) if isinstance(sprint_start, str) else sprint_start
     end_day = date.fromisoformat(str(sprint_end)) if isinstance(sprint_end, str) else sprint_end
+    if end_day < start_day:
+        raise ValueError("Sprint end date must be on or after the sprint start date.")
     completed_by_day: dict[date, float] = defaultdict(float)
 
     for item in items:
@@ -129,10 +131,76 @@ def compute_burndown(
     }
 
 
+def render_markdown_report(cycle_time: dict, velocity: dict, burndown: dict | None) -> str:
+    lines = [
+        "# Project Metrics",
+        "",
+        f"Generated: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+        "",
+        "Source: up to 1,000 closed GitHub issues. Each issue counts as 1 sizing unit; "
+        "story-point values are not inferred.",
+        "",
+        "## Cycle Time",
+        "",
+        "| Closed issues | Average (days) | Median (days) | P90 (days) |",
+        "| ---: | ---: | ---: | ---: |",
+        (
+            f"| {cycle_time['count']} | {cycle_time['avg_days']:.2f} | "
+            f"{cycle_time.get('median_days', 0.0):.2f} | {cycle_time['p90_days']:.2f} |"
+        ),
+        "",
+        "## Velocity",
+        "",
+        f"**Total completed:** {velocity['total_points']:.2f} sizing units",
+        "",
+    ]
+    if velocity["weeks"]:
+        lines.extend(
+            [
+                "| Week starting (UTC) | Completed sizing units |",
+                "| --- | ---: |",
+                *[
+                    f"| {week['week_start']} | {week['completed_points']:.2f} |"
+                    for week in velocity["weeks"]
+                ],
+                "",
+            ]
+        )
+    else:
+        lines.extend(["No closed issues with completion dates were found.", ""])
+
+    lines.extend(["## Burndown", ""])
+    if burndown is None:
+        lines.extend(
+            [
+                "Not calculated. Run this workflow manually and provide the sprint start date, "
+                "sprint end date, and total planned sizing units.",
+                "",
+            ]
+        )
+    else:
+        lines.extend(
+            [
+                f"**Sprint scope:** {burndown['start_remaining']:.2f} sizing units  "
+                f"**Remaining:** {burndown['end_remaining']:.2f} sizing units",
+                "",
+                "| Date | Remaining | Ideal remaining |",
+                "| --- | ---: | ---: |",
+                *[
+                    f"| {day['date']} | {day['remaining']:.2f} | {day['ideal']:.2f} |"
+                    for day in burndown["daily"]
+                ],
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Analyze project throughput with cycle time, velocity, and burndown.")
     parser.add_argument("--input", default="project-data.json", help="Path to a JSON file containing completed issue or PR items.")
-    parser.add_argument("--total-story-points", type=float, default=0.0, help="Total planned story points for the sprint.")
+    parser.add_argument("--output-markdown", help="Write a Markdown report to this path.")
+    parser.add_argument("--total-story-points", type=float, default=None, help="Total planned sizing units for the sprint.")
     parser.add_argument("--sprint-start", default=None, help="Sprint start date in ISO format, e.g. 2026-09-01.")
     parser.add_argument("--sprint-end", default=None, help="Sprint end date in ISO format, e.g. 2026-09-07.")
     return parser
@@ -157,27 +225,34 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
+    burndown_values = (args.sprint_start, args.sprint_end, args.total_story_points)
+    if any(value is not None for value in burndown_values) and (
+        any(value is None for value in burndown_values) or args.total_story_points <= 0
+    ):
+        parser.error(
+            "Burndown requires --sprint-start, --sprint-end, and a positive --total-story-points."
+        )
+
     items = _load_items(args.input)
     cycle_time = compute_cycle_time(items)
     velocity = compute_velocity(items)
 
-    if items:
-        start_dates = [item.get("created_at") for item in items]
-        end_dates = [item.get("completed_at") or item.get("closed_at") for item in items]
-        observed_start = min(_to_datetime(value) for value in start_dates if _to_datetime(value) is not None)
-        observed_end = max(_to_datetime(value) for value in end_dates if _to_datetime(value) is not None)
-        sprint_start = date.fromisoformat(args.sprint_start) if args.sprint_start else observed_start.date()
-        sprint_end = date.fromisoformat(args.sprint_end) if args.sprint_end else observed_end.date()
-    else:
-        sprint_start = date.fromisoformat(args.sprint_start) if args.sprint_start else date.today()
-        sprint_end = date.fromisoformat(args.sprint_end) if args.sprint_end else date.today()
-
-    burndown = compute_burndown(items, sprint_start, sprint_end, args.total_story_points)
+    burndown = None
+    if args.sprint_start and args.sprint_end and args.total_story_points is not None:
+        burndown = compute_burndown(
+            items,
+            date.fromisoformat(args.sprint_start),
+            date.fromisoformat(args.sprint_end),
+            args.total_story_points,
+        )
     payload = {
         "cycle_time": cycle_time,
         "velocity": velocity,
         "burndown": burndown,
     }
+    if args.output_markdown:
+        report = render_markdown_report(cycle_time, velocity, burndown)
+        Path(args.output_markdown).write_text(report + "\n", encoding="utf-8")
     print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

@@ -1,0 +1,80 @@
+name: Project Metrics
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'
+  workflow_dispatch:
+    inputs:
+      sprint_start:
+        description: Sprint start date (YYYY-MM-DD)
+        required: false
+        type: string
+      sprint_end:
+        description: Sprint end date (YYYY-MM-DD)
+        required: false
+        type: string
+      total_story_points:
+        description: Planned sizing units (each collected issue counts as 1)
+        required: false
+        type: number
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Collect closed issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state closed \
+            --limit 1000 \
+            --json number,title,createdAt,closedAt \
+            --jq '[.[] | {
+              id: (.number | tostring),
+              title: .title,
+              created_at: .createdAt,
+              closed_at: .closedAt,
+              size: 1
+            }]' > "$RUNNER_TEMP/closed-issues.json"
+
+      - name: Generate metrics report
+        env:
+          SPRINT_START: ${{ inputs.sprint_start }}
+          SPRINT_END: ${{ inputs.sprint_end }}
+          TOTAL_STORY_POINTS: ${{ inputs.total_story_points }}
+        run: |
+          args=(
+            --input "$RUNNER_TEMP/closed-issues.json"
+            --output-markdown "$RUNNER_TEMP/project-metrics.md"
+          )
+          if [[ -n "$SPRINT_START" || -n "$SPRINT_END" || -n "$TOTAL_STORY_POINTS" ]]; then
+            args+=(--sprint-start "$SPRINT_START")
+            args+=(--sprint-end "$SPRINT_END")
+            args+=(--total-story-points "$TOTAL_STORY_POINTS")
+          fi
+          python scripts/project_analysis.py "${args[@]}" | tee "$RUNNER_TEMP/metrics.json"
+
+      - name: Add report to workflow summary
+        run: cat "$RUNNER_TEMP/project-metrics.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload report
+        uses: actions/upload-artifact@v4
+        with:
+          name: project-metrics
+          path: ${{ runner.temp }}/project-metrics.md
+          if-no-files-found: error
+          retention-days: 30
