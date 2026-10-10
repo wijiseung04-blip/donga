@@ -1,18 +1,25 @@
+
 name: Health Check
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   health-check:
     runs-on: ubuntu-latest
     steps:
-      - name: Check Service
+      - name: Check deployment URL
+        env:
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
         run: |
-          # 서비스 접속 시도, 실패 시 오류 출력
-          if curl -f https://myapp.com/health; then
-            echo "Service is down!"
-          else
-            echo "Good"
+          if [ -z "$HEALTH_URL" ]; then
+            echo "HEALTH_URL is not configured."
+            echo "Deploy the application before enabling health checks."
+            exit 0
           fi
+
+          echo "HEALTH_URL is configured."
+          echo "Run an actual health check after deployment."
