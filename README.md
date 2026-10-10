@@ -94,3 +94,6 @@ StudyMate는 이러한 문제를 해결하기 위해 스터디 모집부터 일�
 ## 프로젝트 작업 지표
 
 GitHub Actions의 **Project Metrics** 워크플로가 매주 일요일 00:00 UTC에 닫힌 이슈를 수집해 Cycle Time과 주별 Velocity를 계산합니다. 저장소의 **Actions → Project Metrics**에서 실행 결과의 **Summary**를 확인하거나 `project-metrics` 아티팩트를 내려받을 수 있습니다. 수동 실행 시 스프린트 시작일, 종료일, 계획 작업량(수집된 이슈당 1 sizing unit)을 입력하면 Burndown도 계산됩니다.
+
+## 프로젝트 코드
+https://github.com/wijiseung04-blip/StudyMateProject 에서 확인 가능합니다.
