@@ -1,128 +1,146 @@
 {
-  "repository": "wijiseung04-blip/donga",
-  "generatedAt": "2026-10-06T12:00:42.024022Z",
+  "generatedAt": "2026-10-10T05:35:09.301050Z",
   "rangeWeeks": 12,
-  "environments": [],
-  "weekly": [
+  "environments": [
+    "production"
+  ],
+  "weeks": [
     {
-      "weekStart": "2026-07-13",
+      "week": "2026-07-13",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-07-20",
+      "week": "2026-07-20",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-07-27",
+      "week": "2026-07-27",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-08-03",
+      "week": "2026-08-03",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-08-10",
+      "week": "2026-08-10",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-08-17",
+      "week": "2026-08-17",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-08-24",
+      "week": "2026-08-24",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-08-31",
+      "week": "2026-08-31",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-09-07",
+      "week": "2026-09-07",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
-      "leadTimeHours": 0.0055,
-      "leadTimeSamples": 5,
-      "restoreHours": null,
-      "restoreSamples": 0
-    },
-    {
-      "weekStart": "2026-09-14",
-      "deployments": 0,
-      "successfulDeployments": 0,
-      "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-09-21",
+      "week": "2026-09-14",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
+      "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     },
     {
-      "weekStart": "2026-09-28",
+      "week": "2026-09-21",
       "deployments": 0,
       "successfulDeployments": 0,
       "failures": 0,
-      "leadTimeHours": 0.0095,
-      "leadTimeSamples": 8,
+      "changeFailureRate": null,
+      "leadTimeHours": null,
+      "leadTimeSamples": 0,
+      "restoreHours": null,
+      "restoreSamples": 0
+    },
+    {
+      "week": "2026-09-28",
+      "deployments": 0,
+      "successfulDeployments": 0,
+      "failures": 0,
+      "changeFailureRate": null,
+      "leadTimeHours": null,
+      "leadTimeSamples": 0,
       "restoreHours": null,
       "restoreSamples": 0
     }
-  ]
+  ],
+  "metricNotes": {
+    "leadTimeHours": "PR 병합 시각부터 동일 merge SHA를 사용하는 성공 배포까지의 시간. SHA 연결이 불가능하면 제외.",
+    "changeFailureRate": "완료된 배포 중 최종 완료 상태가 failure 또는 error인 비율. 실제 서비스 장애율과 반드시 같지는 않음.",
+    "restoreHours": "장애 발생 및 복구 시각을 기록하는 데이터가 없어 계산하지 않음."
+  }
 }
