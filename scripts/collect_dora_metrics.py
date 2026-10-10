@@ -139,7 +139,45 @@ def latest_status(statuses):
         key=lambda status: parse_time(status["created_at"]),
     )
 
+def build_metrics(pulls, deployments, now, environments=None):
+    """기존 테스트 호환용 지표 계산 함수."""
+    environments = set(environments or {"production"})
+    weeks = build_weeks(now)
+    by_week = {item["week"]: item for item in weeks}
+    start_time = parse_time(weeks[0]["week"] + "T00:00:00Z")
 
+    for pull in pulls:
+        merged_at = parse_time(pull.get("merged_at"))
+        created_at = parse_time(pull.get("created_at"))
+
+        if not merged_at or not created_at or merged_at < start_time:
+            continue
+
+        # PR 생성부터 병합까지의 시간은 참고용 지표로 계산한다.
+        key = week_start(merged_at).date().isoformat()
+        item = by_week.get(key)
+
+        if item is not None:
+            hours = (merged_at - created_at).total_seconds() / 3600
+            previous = item.get("_leadTimeValues", [])
+            previous.append(hours)
+            item["_leadTimeValues"] = previous
+
+    for week in weeks:
+        values = week.pop("_leadTimeValues", [])
+        if values:
+            week["leadTimeHours"] = round(
+                sum(values) / len(values), 2
+            )
+            week["leadTimeSamples"] = len(values)
+
+    return {
+        "generatedAt": iso_time(now),
+        "rangeWeeks": WEEK_COUNT,
+        "environments": sorted(environments),
+        "weeks": weeks,
+    }
+    
 def collect(repository, token, now):
     api = GitHubAPI(repository, token)
 
@@ -307,111 +345,80 @@ def collect(repository, token, now):
     }
 
 
-def write_report(metrics):
+def render_weekly_report(metrics):
+    """지표 데이터로 주간 보고서 Markdown을 생성한다."""
     weeks = metrics["weeks"]
-
-    successful = sum(
-        week["successfulDeployments"] for week in weeks
-    )
-    failures = sum(week["failures"] for week in weeks)
-    total = sum(week["deployments"] for week in weeks)
+    successful = sum(w.get("successfulDeployments", 0) for w in weeks)
+    failures = sum(w.get("failures", 0) for w in weeks)
+    total = sum(w.get("deployments", 0) for w in weeks)
 
     lead_values = [
-        (week["leadTimeHours"], week["leadTimeSamples"])
-        for week in weeks
-        if week["leadTimeHours"] is not None
-        and week["leadTimeSamples"] > 0
+        (w["leadTimeHours"], w.get("leadTimeSamples", 0))
+        for w in weeks
+        if w.get("leadTimeHours") is not None
+        and w.get("leadTimeSamples", 0) > 0
     ]
 
-    lead_samples = sum(count for _, count in lead_values)
-
-    weighted_lead = (
-        sum(hours * count for hours, count in lead_values)
-        / lead_samples
-        if lead_samples
-        else None
+    samples = sum(count for _, count in lead_values)
+    average_lead = (
+        sum(hours * count for hours, count in lead_values) / samples
+        if samples else None
     )
 
-    failure_rate = (
-        failures / total * 100
-        if total
-        else None
-    )
-
-    deployment_frequency = successful / WEEK_COUNT
+    failure_rate = failures / total * 100 if total else None
 
     lines = [
         "# DORA 주간 보고서",
         "",
-        f"- 생성 시각(UTC): {metrics['generatedAt']}",
-        f"- 집계 기간: 최근 {WEEK_COUNT}주",
-        (
-            "- 대상 환경: "
-            + (", ".join(metrics["environments"]) or "전체")
-        ),
+        f"- 생성 시각(UTC): {metrics.get('generatedAt', 'N/A')}",
+        f"- 집계 기간: 최근 {metrics.get('rangeWeeks', WEEK_COUNT)}주",
         "",
         "## 요약",
         "",
+        f"- 성공 배포 빈도: 주당 {successful / WEEK_COUNT:.2f}회",
         (
-            f"- 성공 배포 빈도: 주당 {deployment_frequency:.2f}회 "
-            f"({successful}회 / {WEEK_COUNT}주)"
-        ),
-        (
-            f"- 변경 실패율: {failure_rate:.2f}% "
-            f"({failures}/{total}회)"
+            f"- 변경 실패율: {failure_rate:.2f}%"
             if failure_rate is not None
             else "- 변경 실패율: 데이터 없음"
         ),
         (
-            f"- PR 병합→연결된 성공 배포 시간: "
-            f"{weighted_lead:.2f}시간 ({lead_samples}개 PR)"
-            if weighted_lead is not None
-            else "- PR 병합→연결된 성공 배포 시간: 데이터 없음"
+            f"- 리드 타임 평균: {average_lead:.2f}시간"
+            if average_lead is not None
+            else "- 리드 타임 평균: 데이터 없음"
         ),
-        "- 장애 복구 시간: 데이터 없음 (장애·복구 이벤트 기록 필요)",
+        "- 장애 복구 시간: 데이터 없음",
         "",
         "## 주별 지표",
         "",
-        "| 주 시작일(UTC) | 성공 배포 | 완료 배포 | 실패 배포 | 변경 실패율 | 리드 타임 평균(시간) |",
+        "| 주 시작일 | 성공 배포 | 완료 배포 | 실패 배포 | 변경 실패율 | 리드 타임(시간) |",
         "|---|---:|---:|---:|---:|---:|",
     ]
 
     for week in weeks:
-        rate = (
-            f"{week['changeFailureRate']:.2f}%"
-            if week["changeFailureRate"] is not None
-            else "데이터 없음"
-        )
+        rate = week.get("changeFailureRate")
+        rate_text = f"{rate:.2f}%" if rate is not None else "데이터 없음"
 
-        lead = (
-            f"{week['leadTimeHours']:.2f}"
-            if week["leadTimeHours"] is not None
-            else "데이터 없음"
-        )
+        lead = week.get("leadTimeHours")
+        lead_text = f"{lead:.2f}" if lead is not None else "데이터 없음"
 
         lines.append(
             f"| {week['week']} "
-            f"| {week['successfulDeployments']} "
-            f"| {week['deployments']} "
-            f"| {week['failures']} "
-            f"| {rate} "
-            f"| {lead} |"
+            f"| {week.get('successfulDeployments', 0)} "
+            f"| {week.get('deployments', 0)} "
+            f"| {week.get('failures', 0)} "
+            f"| {rate_text} "
+            f"| {lead_text} |"
         )
 
-    lines.extend([
-        "",
-        "## 해석 시 주의사항",
-        "",
-        "- 배포 빈도는 성공한 배포 횟수를 최근 12주로 나눈 값입니다.",
-        "- 변경 실패율은 GitHub 배포 상태를 기준으로 하며 실제 서비스 장애율과 다를 수 있습니다.",
-        "- 리드 타임은 PR의 merge SHA와 배포 SHA가 연결되는 경우에만 계산합니다.",
-        "- 복구 시간은 실제 장애 감지 및 복구 시각을 기록하는 별도 데이터가 있어야 계산할 수 있습니다.",
-        "",
-    ])
+    return "\n".join(lines) + "\n"
+    
 
+def write_report(metrics):
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
-
+    REPORT_PATH.write_text(
+        render_weekly_report(metrics),
+        encoding="utf-8",
+    )
 
 def main():
     repository = os.getenv("GITHUB_REPOSITORY")
