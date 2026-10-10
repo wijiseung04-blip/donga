@@ -118,7 +118,7 @@ def build_weeks(now):
             "restoreHours": None,
             "restoreSamples": 0,
         }
-        for offset in reversed(range(WEEK_COUNT))
+        for offset in reversed(range(1, WEEK_COUNT + 1))
     ]
 
 
@@ -140,43 +140,136 @@ def latest_status(statuses):
     )
 
 def build_metrics(pulls, deployments, now, environments=None):
-    """기존 테스트 호환용 지표 계산 함수."""
-    environments = set(environments or {"production"})
     weeks = build_weeks(now)
     by_week = {item["week"]: item for item in weeks}
-    start_time = parse_time(weeks[0]["week"] + "T00:00:00Z")
+    allowed = set(environments) if environments is not None else None
 
-    for pull in pulls:
-        merged_at = parse_time(pull.get("merged_at"))
-        created_at = parse_time(pull.get("created_at"))
+    observed_environments = set()
+    completed = []
 
-        if not merged_at or not created_at or merged_at < start_time:
+    for deployment in deployments:
+        environment = deployment.get("environment", "unknown")
+
+        if allowed is not None and environment not in allowed:
             continue
 
-        # PR 생성부터 병합까지의 시간은 참고용 지표로 계산한다.
-        key = week_start(merged_at).date().isoformat()
+        observed_environments.add(environment)
+
+        statuses = deployment.get("statuses", [])
+        final_status = latest_status(statuses)
+
+        if final_status is None:
+            continue
+
+        state = final_status.get("state")
+        completed_at = parse_time(final_status.get("created_at"))
+
+        if state not in COMPLETED_STATES or completed_at is None:
+            continue
+
+        completed.append({
+            "environment": environment,
+            "state": state,
+            "created_at": parse_time(deployment.get("created_at")),
+            "completed_at": completed_at,
+        })
+
+    # 배포 횟수와 변경 실패율
+    for deployment in completed:
+        key = week_start(deployment["completed_at"]).date().isoformat()
         item = by_week.get(key)
 
-        if item is not None:
-            hours = (merged_at - created_at).total_seconds() / 3600
-            previous = item.get("_leadTimeValues", [])
-            previous.append(hours)
-            item["_leadTimeValues"] = previous
+        if item is None:
+            continue
 
-    for week in weeks:
-        values = week.pop("_leadTimeValues", [])
-        if values:
-            week["leadTimeHours"] = round(
-                sum(values) / len(values), 2
+        item["deployments"] += 1
+
+        if deployment["state"] == "success":
+            item["successfulDeployments"] += 1
+        else:
+            item["failures"] += 1
+
+    for item in weeks:
+        if item["deployments"]:
+            item["changeFailureRate"] = round(
+                item["failures"] / item["deployments"] * 100,
+                2,
             )
-            week["leadTimeSamples"] = len(values)
 
-    return {
+    # 테스트에서 정의한 리드 타임: PR 생성부터 병합까지
+    lead_values = defaultdict(list)
+
+    for pull in pulls:
+        created_at = parse_time(pull.get("created_at"))
+        merged_at = parse_time(pull.get("merged_at"))
+
+        if created_at is None or merged_at is None:
+            continue
+        if merged_at < created_at:
+            continue
+
+        key = week_start(merged_at).date().isoformat()
+
+        if key in by_week:
+            lead_values[key].append(
+                (merged_at - created_at).total_seconds() / 3600
+            )
+
+    for key, values in lead_values.items():
+        by_week[key]["leadTimeHours"] = round(
+            sum(values) / len(values), 2
+        )
+        by_week[key]["leadTimeSamples"] = len(values)
+
+    # 복구 시간: 실패 배포 이후 같은 환경에서 처음 성공한 배포까지
+    restore_values = defaultdict(list)
+
+    for failed in completed:
+        if failed["state"] != "failure" and failed["state"] != "error":
+            continue
+
+        recoveries = [
+            deployment
+            for deployment in completed
+            if deployment["environment"] == failed["environment"]
+            and deployment["state"] == "success"
+            and deployment["completed_at"] > failed["completed_at"]
+        ]
+
+        if not recoveries:
+            continue
+
+        recovered = min(
+            recoveries,
+            key=lambda deployment: deployment["completed_at"],
+        )
+
+        hours = (
+            recovered["completed_at"] - failed["completed_at"]
+        ).total_seconds() / 3600
+
+        key = week_start(failed["completed_at"]).date().isoformat()
+
+        if key in by_week:
+            restore_values[key].append(hours)
+
+    for key, values in restore_values.items():
+        by_week[key]["restoreHours"] = round(
+            sum(values) / len(values), 2
+        )
+        by_week[key]["restoreSamples"] = len(values)
+
+    result = {
         "generatedAt": iso_time(now),
         "rangeWeeks": WEEK_COUNT,
-        "environments": sorted(environments),
-        "weeks": weeks,
+        "environments": sorted(observed_environments),
+        "weekly": weeks,
     }
+
+    # 기존 collect() 및 보고서 코드와의 호환성 유지
+    result["weeks"] = weeks
+
+    return result
     
 def collect(repository, token, now):
     api = GitHubAPI(repository, token)
@@ -346,26 +439,40 @@ def collect(repository, token, now):
 
 
 def render_weekly_report(metrics):
-    """지표 데이터로 주간 보고서 Markdown을 생성한다."""
-    weeks = metrics["weeks"]
-    successful = sum(w.get("successfulDeployments", 0) for w in weeks)
-    failures = sum(w.get("failures", 0) for w in weeks)
-    total = sum(w.get("deployments", 0) for w in weeks)
+    weeks = metrics.get("weekly", metrics.get("weeks", []))
+
+    successful = sum(w["successfulDeployments"] for w in weeks)
+    failures = sum(w["failures"] for w in weeks)
+    total = sum(w["deployments"] for w in weeks)
 
     lead_values = [
-        (w["leadTimeHours"], w.get("leadTimeSamples", 0))
+        (w["leadTimeHours"], w["leadTimeSamples"])
         for w in weeks
-        if w.get("leadTimeHours") is not None
-        and w.get("leadTimeSamples", 0) > 0
+        if w["leadTimeHours"] is not None and w["leadTimeSamples"] > 0
     ]
-
-    samples = sum(count for _, count in lead_values)
+    lead_samples = sum(count for _, count in lead_values)
     average_lead = (
-        sum(hours * count for hours, count in lead_values) / samples
-        if samples else None
+        sum(hours * count for hours, count in lead_values) / lead_samples
+        if lead_samples else None
+    )
+
+    restore_values = [
+        (w["restoreHours"], w["restoreSamples"])
+        for w in weeks
+        if w["restoreHours"] is not None and w["restoreSamples"] > 0
+    ]
+    restore_samples = sum(count for _, count in restore_values)
+    average_restore = (
+        sum(hours * count for hours, count in restore_values) / restore_samples
+        if restore_samples else None
     )
 
     failure_rate = failures / total * 100 if total else None
+
+    def format_hours(value):
+        if value is None:
+            return "데이터 없음"
+        return f"{value:g}시간"
 
     lines = [
         "# DORA 주간 보고서",
@@ -375,39 +482,46 @@ def render_weekly_report(metrics):
         "",
         "## 요약",
         "",
-        f"- 성공 배포 빈도: 주당 {successful / WEEK_COUNT:.2f}회",
+        "| 지표 | 결과 |",
+        "|---|---|",
         (
-            f"- 변경 실패율: {failure_rate:.2f}%"
-            if failure_rate is not None
-            else "- 변경 실패율: 데이터 없음"
-        ),
-        (
-            f"- 리드 타임 평균: {average_lead:.2f}시간"
+            f"| 변경 리드 타임 | {format_hours(average_lead)} "
+            f"({lead_samples}개 PR) |"
             if average_lead is not None
-            else "- 리드 타임 평균: 데이터 없음"
+            else "| 변경 리드 타임 | 데이터 없음 |"
         ),
-        "- 장애 복구 시간: 데이터 없음",
+        (
+            f"| 변경 실패율 | {failure_rate:g}% ({failures}/{total}건) |"
+            if failure_rate is not None
+            else "| 변경 실패율 | 데이터 없음 |"
+        ),
+        (
+            f"| 평균 복구 시간 | {format_hours(average_restore)} "
+            f"({restore_samples}건) |"
+            if average_restore is not None
+            else "| 평균 복구 시간 | 데이터 없음 |"
+        ),
         "",
         "## 주별 지표",
         "",
-        "| 주 시작일 | 성공 배포 | 완료 배포 | 실패 배포 | 변경 실패율 | 리드 타임(시간) |",
+        "| 주 시작 | 성공 배포 | 실패 배포 | 실패율 | 리드 타임 | 복구 시간 |",
         "|---|---:|---:|---:|---:|---:|",
     ]
 
     for week in weeks:
-        rate = week.get("changeFailureRate")
-        rate_text = f"{rate:.2f}%" if rate is not None else "데이터 없음"
+        rate = week["changeFailureRate"]
+        rate_text = f"{rate:g}%" if rate is not None else "데이터 없음"
 
-        lead = week.get("leadTimeHours")
-        lead_text = f"{lead:.2f}" if lead is not None else "데이터 없음"
+        lead = format_hours(week["leadTimeHours"])
+        restore = format_hours(week["restoreHours"])
 
         lines.append(
             f"| {week['week']} "
-            f"| {week.get('successfulDeployments', 0)} "
-            f"| {week.get('deployments', 0)} "
-            f"| {week.get('failures', 0)} "
+            f"| {week['successfulDeployments']} "
+            f"| {week['failures']} "
             f"| {rate_text} "
-            f"| {lead_text} |"
+            f"| {lead} "
+            f"| {restore} |"
         )
 
     return "\n".join(lines) + "\n"
