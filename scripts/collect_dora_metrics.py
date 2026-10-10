@@ -1,7 +1,6 @@
 import json
 import os
 import urllib.error
-import urllib.parse
 import urllib.request
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -9,6 +8,7 @@ from pathlib import Path
 
 WEEK_COUNT = 12
 API_BASE = "https://api.github.com"
+
 OUTPUT_PATH = Path("docs/images/docs/dora-metrics.json")
 REPORT_PATH = Path("docs/images/docs/dora-weekly-report.md")
 
@@ -94,19 +94,21 @@ class GitHubAPI:
 def week_start(value):
     monday = value.date() - timedelta(days=value.weekday())
     return datetime(
-        monday.year, monday.month, monday.day,
+        monday.year,
+        monday.month,
+        monday.day,
         tzinfo=timezone.utc,
     )
 
 
 def build_weeks(now):
     current_monday = week_start(now)
-    weeks = []
 
-    for offset in reversed(range(WEEK_COUNT)):
-        start = current_monday - timedelta(weeks=offset)
-        weeks.append({
-            "week": start.date().isoformat(),
+    return [
+        {
+            "week": (
+                current_monday - timedelta(weeks=offset)
+            ).date().isoformat(),
             "deployments": 0,
             "successfulDeployments": 0,
             "failures": 0,
@@ -115,16 +117,16 @@ def build_weeks(now):
             "leadTimeSamples": 0,
             "restoreHours": None,
             "restoreSamples": 0,
-        })
-
-    return weeks
-
+        }
+        for offset in reversed(range(WEEK_COUNT))
+    ]
 
 
 def latest_status(statuses):
-    """완료된 상태 이벤트 중 가장 최근 상태를 반환한다."""
+    """완료된 배포 상태 중 가장 최근 이벤트를 반환한다."""
     dated = [
-        status for status in statuses
+        status
+        for status in statuses
         if status.get("state") in COMPLETED_STATES
         and parse_time(status.get("created_at"))
     ]
@@ -147,18 +149,17 @@ def collect(repository, token, now):
 
     environments = {
         value.strip()
-        for value in os.getenv("DORA_ENVIRONMENTS", "production").split(",")
+        for value in os.getenv(
+            "DORA_ENVIRONMENTS", "production"
+        ).split(",")
         if value.strip()
     }
 
     pulls = api.list_all(
         "/pulls?state=closed&sort=updated&direction=desc"
     )
-    deployments = api.list_all(
-        "/deployments?per_page=100"
-    )
+    deployments = api.list_all("/deployments?per_page=100")
 
-    # 상태를 조회하고 운영 환경의 완료된 배포만 추린다.
     completed_deployments = []
 
     for deployment in deployments:
@@ -175,13 +176,13 @@ def collect(repository, token, now):
         statuses = api.deployment_statuses(deployment["id"])
         final_status = latest_status(statuses)
 
-        if not final_status:
+        if final_status is None:
             continue
 
         state = final_status.get("state")
-        status_time = parse_time(final_status.get("created_at"))
+        completed_at = parse_time(final_status.get("created_at"))
 
-        if state not in COMPLETED_STATES or not status_time:
+        if state not in COMPLETED_STATES or completed_at is None:
             continue
 
         completed_deployments.append({
@@ -189,13 +190,16 @@ def collect(repository, token, now):
             "sha": deployment.get("sha"),
             "environment": environment,
             "created_at": created_at,
-            "completed_at": status_time,
+            "completed_at": completed_at,
             "state": state,
         })
 
-    # 배포 빈도와 변경 실패율은 배포 완료 주차에 집계한다.
+    # 1. 배포 빈도와 변경 실패율
     for deployment in completed_deployments:
-        key = week_start(deployment["completed_at"]).date().isoformat()
+        key = week_start(
+            deployment["completed_at"]
+        ).date().isoformat()
+
         item = by_week.get(key)
 
         if item is None:
@@ -203,7 +207,7 @@ def collect(repository, token, now):
 
         item["deployments"] += 1
 
-        if deployment["state"] in SUCCESS_STATES:
+        if deployment["state"] == "success":
             item["successfulDeployments"] += 1
         else:
             item["failures"] += 1
@@ -213,15 +217,18 @@ def collect(repository, token, now):
 
         if total:
             item["changeFailureRate"] = round(
-                item["failures"] / total * 100, 2
+                item["failures"] / total * 100,
+                2,
             )
 
-    # PR 병합부터 그 이후 최초 성공 배포까지의 시간을 계산한다.
-    # 주의: 커밋 시점부터의 정확한 DORA 리드 타임은 아니다.
+    # 2. 리드 타임의 대리 지표
+    # PR 병합 시각부터 이후 최초 성공 배포까지 계산한다.
+    # 정확한 DORA 리드 타임에는 배포된 변경 사항과 PR의 연결이 필요하다.
     successful_deployments = sorted(
         (
-            deployment for deployment in completed_deployments
-            if deployment["state"] in SUCCESS_STATES
+            deployment
+            for deployment in completed_deployments
+            if deployment["state"] == "success"
         ),
         key=lambda deployment: deployment["completed_at"],
     )
@@ -234,20 +241,35 @@ def collect(repository, token, now):
 
         merged_at = parse_time(pull["merged_at"])
 
-        if not merged_at or merged_at < start_time:
+        if merged_at is None or merged_at < start_time:
             continue
 
-        first_deployment = next(
-            (
-                deployment
-                for deployment in successful_deployments
-                if ((not environments or deployment["environment"] in environments)and deployment["completed_at"] >= merged_at)and deployment["completed_at"] >= merged_at
-            ),
-            None,
+        # 가능하면 PR의 merge commit SHA와 일치하는 배포를 우선한다.
+        merge_sha = pull.get("merge_commit_sha")
+
+        matching_deployments = [
+            deployment
+            for deployment in successful_deployments
+            if (
+                (not environments
+                 or deployment["environment"] in environments)
+                and deployment["completed_at"] >= merged_at
+                and (
+                    not merge_sha
+                    or deployment["sha"] == merge_sha
+                )
+            )
+        ]
+
+        # GitHub deployment SHA가 PR의 merge SHA와 일치하지 않으면
+        # 정확한 연결이 불가능하므로 임의로 다른 배포를 선택하지 않는다.
+        if not merge_sha or not matching_deployments:
+            continue
+
+        first_deployment = min(
+            matching_deployments,
+            key=lambda deployment: deployment["completed_at"],
         )
-
-        if not first_deployment:
-            continue
 
         hours = (
             first_deployment["completed_at"] - merged_at
@@ -264,8 +286,6 @@ def collect(repository, token, now):
         )
         by_week[key]["leadTimeSamples"] = len(values)
 
-    # GitHub 배포 상태만으로는 실제 장애 발생 및 복구 시점을
-    # 확정할 수 없으므로, 복구 시간은 임의로 산출하지 않는다.
     return {
         "generatedAt": iso_time(now),
         "rangeWeeks": WEEK_COUNT,
@@ -273,14 +293,15 @@ def collect(repository, token, now):
         "weeks": weeks,
         "metricNotes": {
             "leadTimeHours": (
-                "PR 병합부터 최초 성공 배포까지의 시간. "
-                "커밋부터 배포까지의 정확한 DORA 리드 타임은 아님."
+                "PR 병합 시각부터 동일 merge SHA를 사용하는 "
+                "성공 배포까지의 시간. SHA 연결이 불가능하면 제외."
             ),
             "changeFailureRate": (
-                "완료된 배포 중 최종 상태가 failure 또는 error인 비율."
+                "완료된 배포 중 최종 완료 상태가 failure 또는 error인 비율. "
+                "실제 서비스 장애율과 반드시 같지는 않음."
             ),
             "restoreHours": (
-                "실제 장애 발생 및 복구 기록이 없어 계산하지 않음."
+                "장애 발생 및 복구 시각을 기록하는 데이터가 없어 계산하지 않음."
             ),
         },
     }
@@ -288,24 +309,35 @@ def collect(repository, token, now):
 
 def write_report(metrics):
     weeks = metrics["weeks"]
-    successful = sum(w["successfulDeployments"] for w in weeks)
-    failures = sum(w["failures"] for w in weeks)
-    total = sum(w["deployments"] for w in weeks)
+
+    successful = sum(
+        week["successfulDeployments"] for week in weeks
+    )
+    failures = sum(week["failures"] for week in weeks)
+    total = sum(week["deployments"] for week in weeks)
 
     lead_values = [
-        (w["leadTimeHours"], w["leadTimeSamples"])
-        for w in weeks
-        if w["leadTimeHours"] is not None
-        and w["leadTimeSamples"] > 0
+        (week["leadTimeHours"], week["leadTimeSamples"])
+        for week in weeks
+        if week["leadTimeHours"] is not None
+        and week["leadTimeSamples"] > 0
     ]
 
     lead_samples = sum(count for _, count in lead_values)
+
     weighted_lead = (
-        sum(hours * count for hours, count in lead_values) / lead_samples
-        if lead_samples else None
+        sum(hours * count for hours, count in lead_values)
+        / lead_samples
+        if lead_samples
+        else None
     )
 
-    failure_rate = failures / total * 100 if total else None
+    failure_rate = (
+        failures / total * 100
+        if total
+        else None
+    )
+
     deployment_frequency = successful / WEEK_COUNT
 
     lines = [
@@ -313,7 +345,10 @@ def write_report(metrics):
         "",
         f"- 생성 시각(UTC): {metrics['generatedAt']}",
         f"- 집계 기간: 최근 {WEEK_COUNT}주",
-        f"- 대상 환경: {', '.join(metrics['environments']) or '전체'}",
+        (
+            "- 대상 환경: "
+            + (", ".join(metrics["environments"]) or "전체")
+        ),
         "",
         "## 요약",
         "",
@@ -328,16 +363,16 @@ def write_report(metrics):
             else "- 변경 실패율: 데이터 없음"
         ),
         (
-            f"- PR 병합→최초 성공 배포 시간: {weighted_lead:.2f}시간 "
-            f"({lead_samples}개 PR)"
+            f"- PR 병합→연결된 성공 배포 시간: "
+            f"{weighted_lead:.2f}시간 ({lead_samples}개 PR)"
             if weighted_lead is not None
-            else "- PR 병합→최초 성공 배포 시간: 데이터 없음"
+            else "- PR 병합→연결된 성공 배포 시간: 데이터 없음"
         ),
         "- 장애 복구 시간: 데이터 없음 (장애·복구 이벤트 기록 필요)",
         "",
         "## 주별 지표",
         "",
-        "| 주 시작일(UTC) | 성공 배포 | 완료 배포 | 실패 배포 | 변경 실패율 | PR 병합→배포 평균(시간) |",
+        "| 주 시작일(UTC) | 성공 배포 | 완료 배포 | 실패 배포 | 변경 실패율 | 리드 타임 평균(시간) |",
         "|---|---:|---:|---:|---:|---:|",
     ]
 
@@ -347,6 +382,7 @@ def write_report(metrics):
             if week["changeFailureRate"] is not None
             else "데이터 없음"
         )
+
         lead = (
             f"{week['leadTimeHours']:.2f}"
             if week["leadTimeHours"] is not None
@@ -366,9 +402,10 @@ def write_report(metrics):
         "",
         "## 해석 시 주의사항",
         "",
-        "- PR 병합부터 배포까지의 시간은 커밋부터 배포까지의 정확한 DORA 리드 타임과 다릅니다.",
-        "- 변경 실패율은 배포의 최종 상태를 사용하므로, 배포 후 발생한 실제 서비스 장애를 모두 의미하지는 않습니다.",
-        "- 복구 시간은 실제 장애 감지·복구 시각을 기록하는 별도 모니터링 데이터가 있어야 계산할 수 있습니다.",
+        "- 배포 빈도는 성공한 배포 횟수를 최근 12주로 나눈 값입니다.",
+        "- 변경 실패율은 GitHub 배포 상태를 기준으로 하며 실제 서비스 장애율과 다를 수 있습니다.",
+        "- 리드 타임은 PR의 merge SHA와 배포 SHA가 연결되는 경우에만 계산합니다.",
+        "- 복구 시간은 실제 장애 감지 및 복구 시각을 기록하는 별도 데이터가 있어야 계산할 수 있습니다.",
         "",
     ])
 
@@ -393,6 +430,7 @@ def main():
         json.dumps(metrics, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+
     write_report(metrics)
 
     print(f"DORA 지표 저장 완료: {OUTPUT_PATH}")
