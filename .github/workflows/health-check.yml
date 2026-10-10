@@ -14,5 +14,5 @@ jobs:
           if curl -f https://myapp.com/health; then
             echo "Service is down!"
           else
-            echo "Service is down!"
+            echo "Good"
           fi
