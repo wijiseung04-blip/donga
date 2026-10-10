@@ -1,22 +1,76 @@
 name: Track Lead Time
 
 on:
-  pull_request:
-    types: [closed]
+  deployment_status:
+
+permissions:
+  contents: read
 
 jobs:
   track-lead-time:
-    # PR이 병합되었을 때만 실행
-    if: github.event.pull_request.merged == true
+    if: github.event.deployment_status.state == 'success'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Calculate Lead Time
+      - name: Calculate commit-to-deployment time
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SHA: ${{ github.event.deployment.sha }}
+          DEPLOYMENT_ID: ${{ github.event.deployment.id }}
+          ENVIRONMENT: ${{ github.event.deployment.environment }}
+          DEPLOYED_AT: ${{ github.event.deployment_status.created_at }}
         run: |
-          FIRST_COMMIT_TIME="${{ github.event.pull_request.created_at }}"
-          MERGE_TIME="${{ github.event.pull_request.merged_at }}"
+          set -euo pipefail
+          mkdir -p artifacts
 
-          # 시간 차이 계산 (초 단위)
-          LEAD_TIME=$(( $(date -d "$MERGE_TIME" +%s) - $(date -d "$FIRST_COMMIT_TIME" +%s) ))
+          COMMIT_TIME=$(gh api \
+            "repos/${REPOSITORY}/commits/${SHA}" \
+            --jq '.commit.committer.date // .commit.author.date')
 
-          echo "Lead Time: $LEAD_TIME seconds"
+          if [ -z "$COMMIT_TIME" ] || [ -z "$DEPLOYED_AT" ]; then
+            echo "Missing commit or deployment timestamp."
+            exit 1
+          fi
+
+          COMMIT_SECONDS=$(date -u -d "$COMMIT_TIME" +%s)
+          DEPLOYED_SECONDS=$(date -u -d "$DEPLOYED_AT" +%s)
+          LEAD_TIME_SECONDS=$((DEPLOYED_SECONDS - COMMIT_SECONDS))
+
+          if [ "$LEAD_TIME_SECONDS" -lt 0 ]; then
+            echo "Invalid negative lead time."
+            exit 1
+          fi
+
+          COMMIT_TIME="$COMMIT_TIME" \
+          LEAD_TIME_SECONDS="$LEAD_TIME_SECONDS" \
+          python3 - <<'PY'
+          import json
+          import os
+
+          lead_seconds = int(os.environ["LEAD_TIME_SECONDS"])
+
+          record = {
+              "deployment_id": os.environ["DEPLOYMENT_ID"],
+              "environment": os.environ["ENVIRONMENT"],
+              "commit_sha": os.environ["SHA"],
+              "commit_time": os.environ["COMMIT_TIME"],
+              "deployed_at": os.environ["DEPLOYED_AT"],
+              "lead_time_seconds": lead_seconds,
+              "lead_time_hours": round(lead_seconds / 3600, 2)
+          }
+
+          with open("artifacts/lead-time.json", "w",
+                    encoding="utf-8") as f:
+              json.dump(record, f, ensure_ascii=False, indent=2)
+
+          print(json.dumps(record, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload lead-time metric
+        uses: actions/upload-artifact@v4
+        with:
+          name: lead-time-${{ github.event.deployment.id }}
+          path: artifacts/lead-time.json
+          if-no-files-found: error
+          retention-days: 90
