@@ -1,297 +1,401 @@
-"""Collect weekly DORA metrics from GitHub pull requests and deployments."""
-
-from __future__ import annotations
-
 import json
 import os
-import re
-from datetime import date, datetime, timedelta, timezone
+import urllib.error
+import urllib.parse
+import urllib.request
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlparse
-from urllib.request import Request, urlopen
-
 
 WEEK_COUNT = 12
-OUTPUT_PATH = Path("docs/images/docs/dora-metrics.json")
-REPORT_PATH = OUTPUT_PATH.with_name("dora-weekly-report.md")
 API_BASE = "https://api.github.com"
+OUTPUT_PATH = Path("docs/images/docs/dora-metrics.json")
+REPORT_PATH = Path("docs/images/docs/dora-weekly-report.md")
+
+SUCCESS_STATES = {"success"}
+FAILURE_STATES = {"failure", "error"}
+COMPLETED_STATES = SUCCESS_STATES | FAILURE_STATES
 
 
-def parse_timestamp(value: str) -> datetime:
-    return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc)
+def parse_time(value):
+    if not value:
+        return None
+
+    return datetime.fromisoformat(
+        value.replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
 
 
-class GitHubApi:
-    def __init__(self, repository: str, token: str) -> None:
-        self.base_url = f"{API_BASE}/repos/{repository}"
+def iso_time(value):
+    return value.astimezone(timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+
+
+class GitHubAPI:
+    def __init__(self, repository, token):
+        self.repository = repository
         self.token = token
 
-    def get(self, url: str) -> tuple[object, str | None]:
-        request = Request(
+    def get(self, path):
+        url = f"{API_BASE}/repos/{self.repository}{path}"
+
+        request = urllib.request.Request(
             url,
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {self.token}",
                 "X-GitHub-Api-Version": "2022-11-28",
-                "User-Agent": "donga-dora-metrics-collector",
+                "User-Agent": "dora-metrics-collector",
             },
         )
+
         try:
-            with urlopen(request, timeout=30) as response:
-                return json.load(response), response.headers.get("Link")
-        except HTTPError as error:
-            details = error.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"GitHub API returned {error.code}: {details}") from error
-        except URLError as error:
-            raise RuntimeError(f"Could not reach GitHub API: {error.reason}") from error
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            body = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(
+                f"GitHub API 요청 실패: {path} "
+                f"(HTTP {exc.code}): {body}"
+            ) from exc
 
-    def list_all(self, path: str) -> list[dict[str, object]]:
-        url = f"{self.base_url}{path}"
-        records = []
-        while url:
-            payload, link_header = self.get(url)
-            if not isinstance(payload, list):
-                raise RuntimeError(f"Expected a list response from {url}")
-            records.extend(payload)
-            next_link = re.search(r'<([^>]+)>;\s*rel="next"', link_header or "")
-            url = next_link.group(1) if next_link else ""
-        return records
+    def list_all(self, path):
+        results = []
+        page = 1
+
+        while True:
+            separator = "&" if "?" in path else "?"
+            page_path = (
+                f"{path}{separator}per_page=100&page={page}"
+            )
+            data = self.get(page_path)
+
+            if not isinstance(data, list):
+                raise RuntimeError(
+                    f"예상하지 못한 API 응답: {page_path}"
+                )
+
+            results.extend(data)
+
+            if len(data) < 100:
+                break
+
+            page += 1
+
+        return results
+
+    def deployment_statuses(self, deployment_id):
+        return self.list_all(
+            f"/deployments/{deployment_id}/statuses"
+        )
 
 
-def _week_start(value: datetime) -> date:
-    return value.date() - timedelta(days=value.weekday())
+def week_start(value):
+    monday = value.date() - timedelta(days=value.weekday())
+    return datetime(
+        monday.year, monday.month, monday.day,
+        tzinfo=timezone.utc,
+    )
 
 
-def build_metrics(
-    pulls: list[dict[str, object]],
-    deployments: list[dict[str, object]],
-    now: datetime | None = None,
-    environments: set[str] | None = None,
-) -> dict[str, object]:
-    now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    end_date = _week_start(now)
-    first_week = end_date - timedelta(weeks=WEEK_COUNT)
-    week_starts = [first_week + timedelta(weeks=index) for index in range(WEEK_COUNT)]
-    rows: dict[date, dict[str, object]] = {
-        week: {
-            "weekStart": week.isoformat(),
+def build_weeks(now):
+    current_monday = week_start(now)
+    weeks = []
+
+    for offset in reversed(range(WEEK_COUNT)):
+        start = current_monday - timedelta(weeks=offset)
+        weeks.append({
+            "week": start.date().isoformat(),
             "deployments": 0,
             "successfulDeployments": 0,
             "failures": 0,
+            "changeFailureRate": None,
             "leadTimeHours": None,
             "leadTimeSamples": 0,
             "restoreHours": None,
             "restoreSamples": 0,
-            "_leadTimeTotal": 0.0,
-            "_restoreTimeTotal": 0.0,
-        }
-        for week in week_starts
+        })
+
+    return weeks
+
+
+def latest_status(statuses):
+    """배포의 최종 상태는 가장 최근 상태 이벤트로 판정한다."""
+    dated = [
+        status for status in statuses
+        if parse_time(status.get("created_at"))
+    ]
+
+    if not dated:
+        return None
+
+    return max(
+        dated,
+        key=lambda status: parse_time(status["created_at"]),
+    )
+
+
+def collect(repository, token, now):
+    api = GitHubAPI(repository, token)
+
+    weeks = build_weeks(now)
+    by_week = {item["week"]: item for item in weeks}
+    start_time = parse_time(weeks[0]["week"] + "T00:00:00Z")
+
+    environments = {
+        value.strip()
+        for value in os.getenv("DORA_ENVIRONMENTS", "production").split(",")
+        if value.strip()
     }
-    included_environments: set[str] = set()
+
+    pulls = api.list_all(
+        "/pulls?state=closed&sort=updated&direction=desc"
+    )
+    deployments = api.list_all(
+        "/deployments?per_page=100"
+    )
+
+    # 상태를 조회하고 운영 환경의 완료된 배포만 추린다.
+    completed_deployments = []
+
+    for deployment in deployments:
+        environment = deployment.get("environment", "unknown")
+
+        if environments and environment not in environments:
+            continue
+
+        created_at = parse_time(deployment.get("created_at"))
+
+        if not created_at or created_at < start_time:
+            continue
+
+        statuses = api.deployment_statuses(deployment["id"])
+        final_status = latest_status(statuses)
+
+        if not final_status:
+            continue
+
+        state = final_status.get("state")
+        status_time = parse_time(final_status.get("created_at"))
+
+        if state not in COMPLETED_STATES or not status_time:
+            continue
+
+        completed_deployments.append({
+            "id": deployment["id"],
+            "sha": deployment.get("sha"),
+            "environment": environment,
+            "created_at": created_at,
+            "completed_at": status_time,
+            "state": state,
+        })
+
+    # 배포 빈도와 변경 실패율은 배포 완료 주차에 집계한다.
+    for deployment in completed_deployments:
+        key = week_start(deployment["completed_at"]).date().isoformat()
+        item = by_week.get(key)
+
+        if item is None:
+            continue
+
+        item["deployments"] += 1
+
+        if deployment["state"] in SUCCESS_STATES:
+            item["successfulDeployments"] += 1
+        else:
+            item["failures"] += 1
+
+    for item in weeks:
+        total = item["deployments"]
+
+        if total:
+            item["changeFailureRate"] = round(
+                item["failures"] / total * 100, 2
+            )
+
+    # PR 병합부터 그 이후 최초 성공 배포까지의 시간을 계산한다.
+    # 주의: 커밋 시점부터의 정확한 DORA 리드 타임은 아니다.
+    successful_deployments = sorted(
+        (
+            deployment for deployment in completed_deployments
+            if deployment["state"] in SUCCESS_STATES
+        ),
+        key=lambda deployment: deployment["completed_at"],
+    )
+
+    lead_times = defaultdict(list)
 
     for pull in pulls:
-        merged_at = pull.get("merged_at")
-        created_at = pull.get("created_at")
-        if not isinstance(merged_at, str) or not isinstance(created_at, str):
+        if not pull.get("merged_at"):
             continue
-        merged = parse_timestamp(merged_at)
-        week = _week_start(merged)
-        if week not in rows:
-            continue
-        lead_hours = max(0.0, (merged - parse_timestamp(created_at)).total_seconds() / 3600)
-        row = rows[week]
-        row["_leadTimeTotal"] = float(row["_leadTimeTotal"]) + lead_hours
-        row["leadTimeSamples"] = int(row["leadTimeSamples"]) + 1
 
-    status_events: list[tuple[datetime, str, str, date]] = []
-    for deployment in deployments:
-        created_at = deployment.get("created_at")
-        if not isinstance(created_at, str):
-            continue
-        created = parse_timestamp(created_at)
-        week = _week_start(created)
-        if week not in rows:
-            continue
-        environment = str(deployment.get("environment", "production"))
-        if environments and environment.lower() not in environments:
-            continue
-        included_environments.add(environment)
-        row = rows[week]
-        statuses = deployment.get("statuses", [])
-        if not isinstance(statuses, list):
-            continue
-        failed = False
-        succeeded = False
-        completed = False
-        for status in statuses:
-            if not isinstance(status, dict):
-                continue
-            state = str(status.get("state", "")).lower()
-            succeeded = succeeded or state == "success"
-            completed = completed or state in {"failure", "error", "success"}
-            status_created_at = status.get("created_at")
-            if state in {"failure", "error"}:
-                failed = True
-            if state not in {"failure", "error", "success"} or not isinstance(status_created_at, str):
-                continue
-            timestamp = parse_timestamp(status_created_at)
-            if first_week <= _week_start(timestamp) < end_date:
-                status_events.append((timestamp, environment, state, week))
-        if not completed:
-            continue
-        row["deployments"] = int(row["deployments"]) + 1
-        if failed:
-            row["failures"] = int(row["failures"]) + 1
-        if succeeded:
-            row["successfulDeployments"] = int(row["successfulDeployments"]) + 1
+        merged_at = parse_time(pull["merged_at"])
 
-    pending_incident: dict[str, tuple[datetime, date]] = {}
-    for timestamp, environment, state, incident_week in sorted(status_events):
-        row = rows.get(incident_week)
-        if row is None:
+        if not merged_at or merged_at < start_time:
             continue
-        if state in {"failure", "error"}:
-            pending_incident.setdefault(environment, (timestamp, incident_week))
-        elif state == "success" and environment in pending_incident:
-            failed_at, failed_week = pending_incident.pop(environment)
-            failed_row = rows[failed_week]
-            restore_hours = max(0.0, (timestamp - failed_at).total_seconds() / 3600)
-            failed_row["_restoreTimeTotal"] = float(failed_row["_restoreTimeTotal"]) + restore_hours
-            failed_row["restoreSamples"] = int(failed_row["restoreSamples"]) + 1
 
-    for row in rows.values():
-        lead_count = int(row["leadTimeSamples"])
-        restore_count = int(row["restoreSamples"])
-        if lead_count:
-            row["leadTimeHours"] = round(float(row["_leadTimeTotal"]) / lead_count, 4)
-        if restore_count:
-            row["restoreHours"] = round(float(row["_restoreTimeTotal"]) / restore_count, 4)
-        del row["_leadTimeTotal"]
-        del row["_restoreTimeTotal"]
+        first_deployment = next(
+            (
+                deployment
+                for deployment in successful_deployments
+                if deployment["environment"] in environments
+                and deployment["completed_at"] >= merged_at
+            ),
+            None,
+        )
 
+        if not first_deployment:
+            continue
+
+        hours = (
+            first_deployment["completed_at"] - merged_at
+        ).total_seconds() / 3600
+
+        key = week_start(merged_at).date().isoformat()
+
+        if key in by_week and hours >= 0:
+            lead_times[key].append(hours)
+
+    for key, values in lead_times.items():
+        by_week[key]["leadTimeHours"] = round(
+            sum(values) / len(values), 2
+        )
+        by_week[key]["leadTimeSamples"] = len(values)
+
+    # GitHub 배포 상태만으로는 실제 장애 발생 및 복구 시점을
+    # 확정할 수 없으므로, 복구 시간은 임의로 산출하지 않는다.
     return {
-        "repository": os.environ.get("GITHUB_REPOSITORY", ""),
-        "generatedAt": now.isoformat().replace("+00:00", "Z"),
+        "generatedAt": iso_time(now),
         "rangeWeeks": WEEK_COUNT,
-        "environments": sorted(included_environments),
-        "weekly": list(rows.values()),
+        "environments": sorted(environments),
+        "weeks": weeks,
+        "metricNotes": {
+            "leadTimeHours": (
+                "PR 병합부터 최초 성공 배포까지의 시간. "
+                "커밋부터 배포까지의 정확한 DORA 리드 타임은 아님."
+            ),
+            "changeFailureRate": (
+                "완료된 배포 중 최종 상태가 failure 또는 error인 비율."
+            ),
+            "restoreHours": (
+                "실제 장애 발생 및 복구 기록이 없어 계산하지 않음."
+            ),
+        },
     }
 
 
-def render_weekly_report(metrics: dict[str, object]) -> str:
-    weeks = metrics["weekly"]
-    if not isinstance(weeks, list) or not weeks:
-        raise ValueError("DORA metrics must contain at least one weekly row")
+def write_report(metrics):
+    weeks = metrics["weeks"]
+    successful = sum(w["successfulDeployments"] for w in weeks)
+    failures = sum(w["failures"] for w in weeks)
+    total = sum(w["deployments"] for w in weeks)
 
-    def weighted_average(value_key: str, samples_key: str) -> tuple[float | None, int]:
-        sample_count = sum(int(week.get(samples_key, 0)) for week in weeks)
-        if not sample_count:
-            return None, 0
-        total = sum(
-            float(week[value_key] or 0) * int(week.get(samples_key, 0))
-            for week in weeks
-        )
-        return total / sample_count, sample_count
+    lead_values = [
+        (w["leadTimeHours"], w["leadTimeSamples"])
+        for w in weeks
+        if w["leadTimeHours"] is not None
+        and w["leadTimeSamples"] > 0
+    ]
 
-    def display(value: float | None, unit: str = "") -> str:
-        return "데이터 없음" if value is None else f"{value:.4g}{unit}"
+    lead_samples = sum(count for _, count in lead_values)
+    weighted_lead = (
+        sum(hours * count for hours, count in lead_values) / lead_samples
+        if lead_samples else None
+    )
 
-    total_deployments = sum(int(week.get("deployments", 0)) for week in weeks)
-    successful_deployments = sum(int(week.get("successfulDeployments", 0)) for week in weeks)
-    failures = sum(int(week.get("failures", 0)) for week in weeks)
-    lead_time, lead_samples = weighted_average("leadTimeHours", "leadTimeSamples")
-    restore_time, restore_samples = weighted_average("restoreHours", "restoreSamples")
-    failure_rate = failures / total_deployments * 100 if total_deployments else None
-    average_frequency = successful_deployments / len(weeks)
+    failure_rate = failures / total * 100 if total else None
+    deployment_frequency = successful / WEEK_COUNT
 
     lines = [
         "# DORA 주간 보고서",
         "",
-        f"- 저장소: {metrics.get('repository') or '알 수 없음'}",
-        f"- 생성 시각(UTC): {metrics.get('generatedAt', '알 수 없음')}",
-        f"- 집계 기간: 최근 완료된 {len(weeks)}주",
+        f"- 생성 시각(UTC): {metrics['generatedAt']}",
+        f"- 집계 기간: 최근 {WEEK_COUNT}주",
+        f"- 대상 환경: {', '.join(metrics['environments']) or '전체'}",
         "",
-        "## 기간 요약",
+        "## 요약",
         "",
-        "| 지표 | 결과 |",
-        "| --- | ---: |",
-        f"| 변경 리드 타임 | {display(lead_time, '시간')} ({lead_samples}개 PR) |",
-        f"| 배포 빈도 | {display(average_frequency, '회/주')} ({successful_deployments}회 성공 배포) |",
-        f"| 변경 실패율 | {display(failure_rate, '%')} ({failures}/{total_deployments}건) |",
-        f"| 평균 복구 시간 | {display(restore_time, '시간')} ({restore_samples}건) |",
+        (
+            f"- 성공 배포 빈도: 주당 {deployment_frequency:.2f}회 "
+            f"({successful}회 / {WEEK_COUNT}주)"
+        ),
+        (
+            f"- 변경 실패율: {failure_rate:.2f}% "
+            f"({failures}/{total}회)"
+            if failure_rate is not None
+            else "- 변경 실패율: 데이터 없음"
+        ),
+        (
+            f"- PR 병합→최초 성공 배포 시간: {weighted_lead:.2f}시간 "
+            f"({lead_samples}개 PR)"
+            if weighted_lead is not None
+            else "- PR 병합→최초 성공 배포 시간: 데이터 없음"
+        ),
+        "- 장애 복구 시간: 데이터 없음 (장애·복구 이벤트 기록 필요)",
         "",
-        "## 주별 추이",
+        "## 주별 지표",
         "",
-        "| 주 시작 | 성공 배포 | 실패 배포 | 실패율 | 리드 타임 | 복구 시간 |",
-        "| --- | ---: | ---: | ---: | ---: | ---: |",
+        "| 주 시작일(UTC) | 성공 배포 | 완료 배포 | 실패 배포 | 변경 실패율 | PR 병합→배포 평균(시간) |",
+        "|---|---:|---:|---:|---:|---:|",
     ]
 
     for week in weeks:
-        deployments = int(week.get("deployments", 0))
-        week_failures = int(week.get("failures", 0))
-        week_failure_rate = week_failures / deployments * 100 if deployments else None
-        lead_value = week.get("leadTimeHours") if week.get("leadTimeSamples") else None
-        restore_value = week.get("restoreHours") if week.get("restoreSamples") else None
-        lines.append(
-            "| {week} | {successes} | {failures} | {rate} | {lead} | {restore} |".format(
-                week=week["weekStart"],
-                successes=week.get("successfulDeployments", 0),
-                failures=week_failures,
-                rate=display(week_failure_rate, "%"),
-                lead=display(lead_value, "시간"),
-                restore=display(restore_value, "시간"),
-            )
+        rate = (
+            f"{week['changeFailureRate']:.2f}%"
+            if week["changeFailureRate"] is not None
+            else "데이터 없음"
+        )
+        lead = (
+            f"{week['leadTimeHours']:.2f}"
+            if week["leadTimeHours"] is not None
+            else "데이터 없음"
         )
 
-    lines.extend(
-        [
-            "",
-            "배포 지표는 GitHub Deployments 기록 기준입니다. 리드 타임은 PR 생성부터 병합까지 계산합니다.",
-            "",
-        ]
-    )
-    return "\n".join(lines)
+        lines.append(
+            f"| {week['week']} "
+            f"| {week['successfulDeployments']} "
+            f"| {week['deployments']} "
+            f"| {week['failures']} "
+            f"| {rate} "
+            f"| {lead} |"
+        )
+
+    lines.extend([
+        "",
+        "## 해석 시 주의사항",
+        "",
+        "- PR 병합부터 배포까지의 시간은 커밋부터 배포까지의 정확한 DORA 리드 타임과 다릅니다.",
+        "- 변경 실패율은 배포의 최종 상태를 사용하므로, 배포 후 발생한 실제 서비스 장애를 모두 의미하지는 않습니다.",
+        "- 복구 시간은 실제 장애 감지·복구 시각을 기록하는 별도 모니터링 데이터가 있어야 계산할 수 있습니다.",
+        "",
+    ])
+
+    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
+    REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
-def collect(api: GitHubApi, now: datetime | None = None) -> dict[str, object]:
-    pulls = api.list_all("/pulls?state=closed&per_page=100")
-    deployments = api.list_all("/deployments?per_page=100")
-    current_time = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    first_week = _week_start(current_time) - timedelta(weeks=WEEK_COUNT)
-    environments = {
-        name.strip().lower()
-        for name in os.environ.get("DORA_ENVIRONMENTS", "").split(",")
-        if name.strip()
-    }
-    relevant_deployments = []
-    for deployment in deployments:
-        created_at = deployment.get("created_at")
-        if not isinstance(created_at, str) or _week_start(parse_timestamp(created_at)) < first_week:
-            continue
-        if environments and str(deployment.get("environment", "production")).lower() not in environments:
-            continue
-        deployment_id = deployment.get("id")
-        if deployment_id is None:
-            continue
-        statuses = api.list_all(f"/deployments/{deployment_id}/statuses?per_page=100")
-        relevant_deployments.append({**deployment, "statuses": statuses})
-    return build_metrics(pulls, relevant_deployments, current_time, environments)
+def main():
+    repository = os.getenv("GITHUB_REPOSITORY")
+    token = os.getenv("GITHUB_TOKEN")
 
-
-def main() -> None:
-    repository = os.environ.get("GITHUB_REPOSITORY", "")
-    token = os.environ.get("GITHUB_TOKEN", "")
     if not repository or not token:
-        raise SystemExit("GITHUB_REPOSITORY and GITHUB_TOKEN are required")
-    if not re.fullmatch(r"[^/]+/[^/]+", repository):
-        raise SystemExit("GITHUB_REPOSITORY must use owner/repository format")
+        raise SystemExit(
+            "GITHUB_REPOSITORY와 GITHUB_TOKEN 환경 변수가 필요합니다."
+        )
 
-    metrics = collect(GitHubApi(repository, token))
+    now = datetime.now(timezone.utc)
+    metrics = collect(repository, token, now)
+
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    OUTPUT_PATH.write_text(json.dumps(metrics, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    REPORT_PATH.write_text(render_weekly_report(metrics), encoding="utf-8")
-    print(f"Wrote {len(metrics['weekly'])} weeks of DORA data to {OUTPUT_PATH} and {REPORT_PATH}")
+    OUTPUT_PATH.write_text(
+        json.dumps(metrics, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    write_report(metrics)
+
+    print(f"DORA 지표 저장 완료: {OUTPUT_PATH}")
+    print(f"주간 보고서 저장 완료: {REPORT_PATH}")
 
 
 if __name__ == "__main__":
