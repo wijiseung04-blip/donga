@@ -120,11 +120,13 @@ def build_weeks(now):
     return weeks
 
 
+
 def latest_status(statuses):
-    """배포의 최종 상태는 가장 최근 상태 이벤트로 판정한다."""
+    """완료된 상태 이벤트 중 가장 최근 상태를 반환한다."""
     dated = [
         status for status in statuses
-        if parse_time(status.get("created_at"))
+        if status.get("state") in COMPLETED_STATES
+        and parse_time(status.get("created_at"))
     ]
 
     if not dated:
@@ -239,8 +241,7 @@ def collect(repository, token, now):
             (
                 deployment
                 for deployment in successful_deployments
-                if deployment["environment"] in environments
-                and deployment["completed_at"] >= merged_at
+                if ((not environments or deployment["environment"] in environments)and deployment["completed_at"] >= merged_at)and deployment["completed_at"] >= merged_at
             ),
             None,
         )
