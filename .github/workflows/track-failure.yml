@@ -1,18 +1,64 @@
+
 name: Track Deployment Result
 
 on:
   deployment_status:
 
+permissions:
+  contents: read
+
 jobs:
   track-result:
+    if: >-
+      github.event.deployment_status.state == 'success' ||
+      github.event.deployment_status.state == 'failure' ||
+      github.event.deployment_status.state == 'error'
     runs-on: ubuntu-latest
+
     steps:
-      - name: Log Result
+      - name: Record deployment result
+        env:
+          DEPLOYMENT_ID: ${{ github.event.deployment.id }}
+          STATUS_ID: ${{ github.event.deployment_status.id }}
+          STATUS: ${{ github.event.deployment_status.state }}
+          ENVIRONMENT: ${{ github.event.deployment.environment }}
+          SHA: ${{ github.event.deployment.sha }}
+          TARGET_URL: ${{ github.event.deployment_status.target_url }}
+          REPOSITORY: ${{ github.repository }}
+          EVENT_TIME: ${{ github.event.deployment_status.created_at }}
         run: |
-          STATUS="${{ github.event.deployment_status.state }}"
-          echo "상태: $STATUS"
-          if [ "$STATUS" = "success" ]; then
-            echo "✅ Deployment succeeded"
-          else
-            echo "❌ Deployment failed"
-          fi
+          mkdir -p artifacts
+
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          status = os.environ["STATUS"]
+          record = {
+              "deployment_id": os.environ["DEPLOYMENT_ID"],
+              "status_id": os.environ["STATUS_ID"],
+              "status": status,
+              "failed": status in ("failure", "error"),
+              "environment": os.environ["ENVIRONMENT"],
+              "commit_sha": os.environ["SHA"],
+              "target_url": os.environ.get("TARGET_URL", ""),
+              "repository": os.environ["REPOSITORY"],
+              "event_time": os.environ.get("EVENT_TIME", ""),
+              "recorded_at": datetime.now(timezone.utc).isoformat()
+          }
+
+          with open("artifacts/deployment-result.json", "w",
+                    encoding="utf-8") as f:
+              json.dump(record, f, ensure_ascii=False, indent=2)
+
+          print(json.dumps(record, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload deployment result
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-result-${{ github.event.deployment.id }}-${{ github.event.deployment_status.id }}
+          path: artifacts/deployment-result.json
+          if-no-files-found: error
+          retention-days: 90
