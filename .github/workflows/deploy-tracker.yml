@@ -1,16 +1,52 @@
+
 name: Track Deployments
 
 on:
   deployment:
 
+permissions:
+  contents: read
+
 jobs:
   track-deployment:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Log Deployment
+      - name: Record deployment event
+        env:
+          DEPLOYMENT_ID: ${{ github.event.deployment.id }}
+          ENVIRONMENT: ${{ github.event.deployment.environment }}
+          SHA: ${{ github.event.deployment.sha }}
+          CREATED_AT: ${{ github.event.deployment.created_at }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          echo "Deployment at: $(date)"
-          echo "Environment: ${{ github.event.deployment.environment }}"
+          mkdir -p artifacts
 
+          python3 - <<'PY'
+          import json
+          import os
+          from datetime import datetime, timezone
 
-          
+          record = {
+              "deployment_id": os.environ["DEPLOYMENT_ID"],
+              "environment": os.environ["ENVIRONMENT"],
+              "commit_sha": os.environ["SHA"],
+              "deployment_created_at": os.environ["CREATED_AT"],
+              "repository": os.environ["REPOSITORY"],
+              "recorded_at": datetime.now(timezone.utc).isoformat(),
+              "event": "deployment_created"
+          }
+
+          with open("artifacts/deployment.json", "w", encoding="utf-8") as f:
+              json.dump(record, f, ensure_ascii=False, indent=2)
+
+          print(json.dumps(record, ensure_ascii=False, indent=2))
+          PY
+
+      - name: Upload deployment record
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-${{ github.event.deployment.id }}
+          path: artifacts/deployment.json
+          if-no-files-found: error
+          retention-days: 90
