@@ -28,6 +28,6 @@ PR 제목은 Conventional Commits 형식을 따릅니다.
 ## ☑️ 체크리스트
 
 - [ ] PR 제목이 Conventional Commits 형식이다 (`type(scope): subject`)
-- [ ] 브랜치 이름이 규칙을 따른다 (`feature/*`, `fix/*`, `docs/*`, `chore/*` ...)
+- [ ] 브랜치 이름이 [CONTRIBUTING.md](../CONTRIBUTING.md#1-브랜치-전략)의 규칙을 따른다
 - [ ] 변경 범위가 하나의 목적에 집중되어 있다
 - [ ] 문서(README, CONTRIBUTING 등) 갱신이 필요한 경우 반영했다
