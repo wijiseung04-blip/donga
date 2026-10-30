@@ -5,7 +5,20 @@ __pycache__/
 .venv/
 venv/
 
+# Test / packaging artifacts
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
 # Editors / OS
-.vscode/
+.vscode/*
+!.vscode/extensions.json
 .idea/
 .DS_Store
