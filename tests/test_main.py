@@ -17,7 +17,7 @@ def test_greet_strips_whitespace():
 
 @pytest.mark.parametrize("name", ["", "   "])
 def test_greet_rejects_blank_name(name):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="empty"):
         greet(name)
 
 
