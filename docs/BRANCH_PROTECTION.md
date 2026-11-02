@@ -1,47 +1,49 @@
 # Branch Protection Rules
 
-`main` 브랜치에 적용하는 보호 규칙입니다. 저장소 관리자가 **Settings → Branches → Add branch ruleset**(또는 *Branch protection rules*)에서 설정합니다.
+`main` 브랜치에 적용하는 보호 규칙입니다. **Settings → Rules → Rulesets**에서 관리합니다.
 
-## 대상
+## 현재 적용 규칙: 1인 운영
 
-- Branch name pattern: `main`
+| 항목 | 값 |
+|---|---|
+| Ruleset name | `main-protection` |
+| Enforcement status | Active |
+| Target branches | Include default branch (`main`) |
+| Bypass list | 없음 |
+| Restrict deletions | ✅ |
+| Block force pushes | ✅ |
+| Require a pull request before merging | ❌ |
+| Require status checks to pass | ❌ |
+| 그 외 규칙 | ❌ (기본값) |
 
-## 운영 기준: 1인 저장소
+### PR 필수 규칙을 켜지 않는 이유
 
-현재 이 저장소는 혼자 운영합니다. GitHub는 본인 PR을 본인이 승인하는 것을 막으므로, **승인 대신 "PR 필수 + CI 통과 + 리뷰 스레드 해결"** 으로 품질을 지킵니다. 협업자가 합류하면 아래 표의 *협업 시* 값으로 올립니다.
+`collect-dora-metrics.yml`은 PR이 머지될 때마다 실행되어 `GITHUB_TOKEN`으로 `main`에 **직접 커밋**합니다(`chore: update DORA dashboard data`).
 
-## 설정 항목
+- 개인 저장소 Ruleset의 Bypass list에서는 GitHub Actions를 선택할 수 없습니다. PR 필수 규칙을 켜면 이 워크플로가 `GH013: Repository rule violations`로 실패합니다.
+- 워크플로가 직접 커밋하지 않고 PR을 열게 바꾸는 방법도 쓸 수 없습니다.
+  - `GITHUB_TOKEN`으로 만든 PR에서는 다른 워크플로가 실행되지 않으므로 CI 체크가 생기지 않습니다.
+  - DORA PR을 머지하면 워크플로가 다시 실행되어 새 DORA PR을 여는 일이 반복됩니다.
 
-| 항목 | 1인 운영 (현재) | 협업 시 | 이유 |
-|---|---|---|---|
-| Require a pull request before merging | ✅ | ✅ | `main` 직접 push 금지, 모든 변경을 PR로 남김 |
-| └ Required approvals | `0` | `1` | 본인 PR은 본인이 승인할 수 없음 |
-| └ Dismiss stale approvals on new commits | ❌ | ✅ | 승인자가 없으면 의미 없음 |
-| └ Require review from Code Owners | ❌ | ✅ | CODEOWNERS가 본인뿐이라 켜면 머지 불가 |
-| └ Require conversation resolution before merging | ✅ | ✅ | 셀프 리뷰의 `[MUST]` 미해결 상태 머지 방지 |
-| Require status checks to pass | ✅ | ✅ | CI 통과 필수 |
-| └ Required checks | `build (3.10)`, `build (3.11)`, `build (3.12)`, `build (3.13)` | 동일 | pytest, flake8 (Python application 매트릭스) |
-| └ Require branches to be up to date | ❌ | ✅ | DORA 워크플로가 수시로 `main`에 커밋해 PR이 계속 뒤처짐 |
-| Require linear history | ❌ | 선택 | 지금까지 Merge commit으로 머지해 왔음 |
-| Block force pushes | ✅ | ✅ | 이력 보호 |
-| Restrict deletions | ✅ | ✅ | 브랜치 삭제 방지 |
+### PR 흐름은 규칙으로 지킨다
 
-## 자동 워크플로 예외 (필수)
+저장소가 PR을 강제하지는 않으므로, 아래 흐름은 [CONTRIBUTING.md](../CONTRIBUTING.md)의 약속으로 지킵니다.
 
-`collect-dora-metrics.yml`, `throughput.yml` 등은 `GITHUB_TOKEN`으로 `main`에 **직접 커밋**합니다. "Require a pull request"를 켜면 이 워크플로가 실패하므로 반드시 예외를 둡니다.
+1. `main`에 직접 push하지 않고 작업 브랜치에서 PR을 엽니다.
+2. PR마다 실행되는 CI(`build (3.10)` ~ `build (3.13)`)가 모두 통과한 뒤에 머지합니다.
+3. 셀프 리뷰의 `[MUST]` 스레드를 모두 Resolve한 뒤에 머지합니다.
 
-- 기존 *Branch protection rules*(classic)는 GitHub Actions를 예외로 둘 수 없습니다.
-- **Rulesets**를 사용하고 **Bypass list**에 **GitHub Actions** 앱을 추가합니다.
-
-## UI로 설정
+## 설정 방법
 
 1. **Settings → Rules → Rulesets → New ruleset → New branch ruleset**
-2. Ruleset name: `main-protection`, Enforcement status: **Active**
-3. Bypass list → **Add bypass** → **GitHub Actions** (Always allow)
-4. Target branches → **Add target → Include default branch**
-5. 위 표의 *1인 운영* 열대로 규칙을 체크하고 저장
+2. Ruleset Name: `main-protection`, Enforcement status: **Active**
+3. Bypass list는 비워 둠
+4. **Target branches → Add target → Include default branch**
+5. **Restrict deletions**, **Block force pushes**만 체크 (둘 다 기본으로 켜져 있음)
+6. **Create**
+7. **Actions → Collect DORA Metrics → Run workflow**로 실행해 성공하는지 확인
 
-## GitHub CLI로 설정
+### GitHub CLI로 설정
 
 ```bash
 gh api -X POST repos/wijiseung04-blip/donga/rulesets --input - <<'JSON'
@@ -50,37 +52,25 @@ gh api -X POST repos/wijiseung04-blip/donga/rulesets --input - <<'JSON'
   "target": "branch",
   "enforcement": "active",
   "conditions": { "ref_name": { "include": ["~DEFAULT_BRANCH"], "exclude": [] } },
-  "bypass_actors": [
-    { "actor_id": 15368, "actor_type": "Integration", "bypass_mode": "always" }
-  ],
   "rules": [
     { "type": "deletion" },
-    { "type": "non_fast_forward" },
-    {
-      "type": "pull_request",
-      "parameters": {
-        "required_approving_review_count": 0,
-        "dismiss_stale_reviews_on_push": false,
-        "require_code_owner_review": false,
-        "require_last_push_approval": false,
-        "required_review_thread_resolution": true
-      }
-    },
-    {
-      "type": "required_status_checks",
-      "parameters": {
-        "strict_required_status_checks_policy": false,
-        "required_status_checks": [
-          { "context": "build (3.10)" },
-          { "context": "build (3.11)" },
-          { "context": "build (3.12)" },
-          { "context": "build (3.13)" }
-        ]
-      }
-    }
+    { "type": "non_fast_forward" }
   ]
 }
 JSON
 ```
 
-`actor_id: 15368`은 GitHub Actions 앱의 ID입니다. 설정 후 DORA 워크플로를 한 번 수동 실행해 `main` 커밋이 성공하는지 확인합니다.
+## 협업자가 합류하면
+
+PR 필수 규칙을 켜려면 먼저 DORA 데이터를 `main`이 아닌 보호하지 않는 브랜치(예: `dora-data`)에 커밋하도록 워크플로를 바꿉니다. 대시보드를 GitHub Pages로 서비스 중이라면 Pages 소스도 함께 옮깁니다. 그다음 Ruleset에 아래 규칙을 추가합니다.
+
+| 항목 | 값 |
+|---|---|
+| Require a pull request before merging | ✅ |
+| └ Required approvals | `1` |
+| └ Dismiss stale pull request approvals when new commits are pushed | ✅ |
+| └ Require review from Code Owners | ✅ |
+| └ Require conversation resolution before merging | ✅ |
+| Require status checks to pass | ✅ |
+| └ Required checks | `build (3.10)`, `build (3.11)`, `build (3.12)`, `build (3.13)` |
+| └ Require branches to be up to date before merging | ✅ |
