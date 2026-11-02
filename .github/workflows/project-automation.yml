@@ -3,11 +3,11 @@ name: Project Automation
 on:
   issues:
     types: [opened, closed]
-  pull_request:
-    types: [opened, closed]
 
 jobs:
   add-to-project:
+    # StudyMate 작업 이슈([issueN])만 보드에 추가한다. PR·테스트·자동 생성 이슈는 제외.
+    if: startsWith(github.event.issue.title, '[issue')
     runs-on: ubuntu-latest
     steps:
       - name: Add to project
