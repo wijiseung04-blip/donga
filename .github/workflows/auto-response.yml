@@ -1,0 +1,48 @@
+name: Auto Response
+
+on:
+  issues:
+    types: [opened]
+  # ⚠️ pull_request_target은 포크 PR에서도 쓰기 권한 토큰으로 실행된다.
+  # PR 코드를 checkout하거나 실행하는 단계를 추가하지 말 것.
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  respond:
+    if: ${{ !endsWith(github.actor, '[bot]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Comment and label
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const base = `https://github.com/${owner}/${repo}`;
+            const isPR = context.eventName === 'pull_request_target';
+            const item = isPR ? context.payload.pull_request : context.payload.issue;
+
+            const body = isPR
+              ? [
+                  `@${item.user.login} PR 감사합니다! 🙌`,
+                  '',
+                  '- CI(`build (3.10)` ~ `build (3.13)`)가 모두 통과해야 머지할 수 있습니다.',
+                  `- 리뷰는 \`[MUST]\`/\`[SHOULD]\` 태그로 남깁니다. → [리뷰 가이드](${base}/blob/main/docs/REVIEW_GUIDE.md)`,
+                  '- 첫 리뷰 목표: **1영업일 이내**',
+                ].join('\n')
+              : [
+                  `@${item.user.login} 이슈를 남겨 주셔서 감사합니다! 🙏`,
+                  '',
+                  '- 첫 응답 목표: **48시간 이내** (넘기면 `sla:breached` 라벨이 자동으로 붙습니다)',
+                  `- 설치·실행 문제라면 [Troubleshooting](${base}/wiki/Troubleshooting)을 먼저 확인해 주세요.`,
+                ].join('\n');
+
+            await github.rest.issues.createComment({ owner, repo, issue_number: item.number, body });
+
+            if (!isPR) {
+              await github.rest.issues.addLabels({ owner, repo, issue_number: item.number, labels: ['status:new'] });
+            }

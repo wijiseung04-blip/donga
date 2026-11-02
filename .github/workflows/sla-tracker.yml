@@ -1,0 +1,68 @@
+name: SLA Tracker
+
+on:
+  schedule:
+    - cron: "23 */6 * * *"   # 6시간마다
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label issues without first response
+        uses: actions/github-script@v7
+        env:
+          SLA_HOURS: "48"
+          BREACH_LABEL: "sla:breached"
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const slaHours = Number(process.env.SLA_HOURS);
+            const label = process.env.BREACH_LABEL;
+            const maintainers = ['OWNER', 'MEMBER', 'COLLABORATOR'];
+
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch {
+              await github.rest.issues.createLabel({
+                owner, repo, name: label, color: 'd73a4a',
+                description: `${slaHours}시간 안에 첫 응답이 없음`,
+              });
+            }
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100,
+            });
+
+            const breached = [];
+            for (const issue of issues) {
+              if (issue.pull_request) continue;
+              if (issue.labels.some((l) => l.name === label)) continue;
+
+              const ageHours = (Date.now() - new Date(issue.created_at)) / 36e5;
+              if (ageHours < slaHours) continue;
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner, repo, issue_number: issue.number, per_page: 100,
+              });
+              const responded = comments.some(
+                (c) => c.user.type !== 'Bot' && maintainers.includes(c.author_association),
+              );
+              if (responded) continue;
+
+              await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [label] });
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issue.number,
+                body: `⏰ 등록 후 ${Math.floor(ageHours)}시간 동안 첫 응답이 없어 \`${label}\` 라벨을 붙였습니다. (SLA: ${slaHours}시간)`,
+              });
+              breached.push([`#${issue.number}`, issue.title, `${Math.floor(ageHours)}h`]);
+            }
+
+            await core.summary
+              .addHeading('SLA Tracker')
+              .addRaw(`기준: 첫 응답 ${slaHours}시간 · 이번 실행에서 새로 위반: ${breached.length}건`)
+              .addTable([[{ data: '이슈', header: true }, { data: '제목', header: true }, { data: '경과', header: true }], ...breached])
+              .write();
