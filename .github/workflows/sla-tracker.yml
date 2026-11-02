@@ -34,9 +34,8 @@ jobs:
             }
 
             const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', per_page: 100,
+              owner, repo, state: 'open', labels: 'status:new', per_page: 100,
             });
-
             const breached = [];
             for (const issue of issues) {
               if (issue.pull_request) continue;
