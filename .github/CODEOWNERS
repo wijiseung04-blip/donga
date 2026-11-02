@@ -1,0 +1,19 @@
+# CODEOWNERS — 경로별 기본 리뷰어 지정
+# 아래쪽 규칙이 위쪽 규칙보다 우선합니다.
+# https://docs.github.com/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# 기본 소유자
+*                       @wijiseung04-blip
+
+# 애플리케이션 코드와 테스트
+/src/                   @wijiseung04-blip
+/tests/                 @wijiseung04-blip
+
+# CI / 자동화 / 메트릭 스크립트
+/.github/workflows/     @wijiseung04-blip
+/scripts/               @wijiseung04-blip
+
+# 협업 문서와 저장소 설정
+/.github/CODEOWNERS     @wijiseung04-blip
+/CONTRIBUTING.md        @wijiseung04-blip
+/docs/                  @wijiseung04-blip
