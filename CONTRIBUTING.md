@@ -93,4 +93,4 @@ flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
 
 ## 6. 브랜치 보호 규칙
 
-`main` 브랜치에 적용하는 보호 규칙은 [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)에 정리되어 있습니다.
+`main` 브랜치에 적용하는 보호 규칙은 [docs/BRANCH_PROTECTION.md](docs/BRANCH_PROTECTION.md)에 정리되어 있습니다. 1인 운영 중에는 삭제와 force push만 차단하고, PR 필수와 CI 통과는 이 문서의 규칙으로 지킵니다.
