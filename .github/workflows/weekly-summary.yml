@@ -1,0 +1,69 @@
+name: Weekly Summary
+
+on:
+  schedule:
+    - cron: "17 0 * * 1"   # 매주 월요일 09:17 KST
+  workflow_dispatch:
+
+permissions:
+  issues: write
+
+jobs:
+  summary:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create weekly summary issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const until = new Date();
+            const since = new Date(until.getTime() - 7 * 24 * 36e5);
+            const day = (d) => d.toISOString().slice(0, 10);
+            const range = `${day(since)}..${day(until)}`;
+
+            const search = (q) =>
+              github.paginate(github.rest.search.issuesAndPullRequests, {
+                q: `repo:${owner}/${repo} ${q}`,
+                per_page: 100,
+              });
+
+            const [mergedPRs, openedIssues, closedIssues, breached] = await Promise.all([
+              search(`is:pr is:merged merged:${range}`),
+              search(`is:issue created:${range}`),
+              search(`is:issue is:closed closed:${range}`),
+              search('is:issue is:open label:sla:breached'),
+            ]);
+
+            const list = (items) =>
+              items.length ? items.map((i) => `- #${i.number} ${i.title}`).join('\n') : '- 없음';
+
+            const body = [
+              `기간: **${day(since)} ~ ${day(until)}**`,
+              '',
+              '| 항목 | 건수 |',
+              '|---|---|',
+              `| 머지된 PR | ${mergedPRs.length} |`,
+              `| 새 이슈 | ${openedIssues.length} |`,
+              `| 닫힌 이슈 | ${closedIssues.length} |`,
+              `| SLA 위반 중인 이슈 | ${breached.length} |`,
+              '',
+              '## 머지된 PR',
+              list(mergedPRs),
+              '',
+              '## 새 이슈',
+              list(openedIssues),
+              '',
+              '## 닫힌 이슈',
+              list(closedIssues),
+              '',
+              '## SLA 위반 중 (`sla:breached`)',
+              list(breached),
+            ].join('\n');
+
+            const { data: issue } = await github.rest.issues.create({
+              owner, repo,
+              title: `📊 주간 요약 (${day(since)} ~ ${day(until)})`,
+              body,
+            });
+            core.notice(`주간 요약 이슈 생성: #${issue.number}`);
