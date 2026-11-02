@@ -3,6 +3,8 @@ name: Auto Response
 on:
   issues:
     types: [opened]
+  # ⚠️ pull_request_target은 포크 PR에서도 쓰기 권한 토큰으로 실행된다.
+  # PR 코드를 checkout하거나 실행하는 단계를 추가하지 말 것.
   pull_request_target:
     types: [opened]
 

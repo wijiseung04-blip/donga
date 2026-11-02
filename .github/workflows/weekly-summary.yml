@@ -28,12 +28,17 @@ jobs:
                 per_page: 100,
               });
 
-            const [mergedPRs, openedIssues, closedIssues, breached] = await Promise.all([
+            const [mergedPRs, openedAll, closedAll, breached] = await Promise.all([
               search(`is:pr is:merged merged:${range}`),
               search(`is:issue created:${range}`),
               search(`is:issue is:closed closed:${range}`),
               search('is:issue is:open label:sla:breached'),
             ]);
+
+            // 이 워크플로가 만든 요약 이슈는 집계에서 제외
+            const isSummary = (i) => i.title.startsWith('📊 주간 요약');
+            const openedIssues = openedAll.filter((i) => !isSummary(i));
+            const closedIssues = closedAll.filter((i) => !isSummary(i));
 
             const list = (items) =>
               items.length ? items.map((i) => `- #${i.number} ${i.title}`).join('\n') : '- 없음';
