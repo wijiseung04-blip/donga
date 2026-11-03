@@ -1,9 +1,8 @@
-
 ---
 name: Bug Report
 about: 버그를 리포트합니다
 title: '[Bug] '
-labels: bug
+labels: type:bug
 assignees: ''
 ---
 
