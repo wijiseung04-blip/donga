@@ -1,9 +1,8 @@
-
 ---
 name: Feature Request
 about: 새로운 기능을 제안합니다
 title: '[Feature] '
-labels: enhancement
+labels: type:enhancement
 assignees: ''
 ---
 
