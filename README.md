@@ -97,3 +97,41 @@ GitHub Actions의 **Project Metrics** 워크플로가 매주 일요일 00:00 UTC
 
 ## 프로젝트 코드
 https://github.com/wijiseung04-blip/StudyMateProject 에서 확인 가능합니다.
+
+---
+
+## 시작하기 (Installation)
+
+이 저장소는 수업 실습용 Python 예제 앱, DORA 지표 수집 스크립트, GitHub Actions 워크플로를 포함합니다.
+
+```bash
+git clone https://github.com/wijiseung04-blip/donga.git
+cd donga
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+pip install -r requirements.txt flake8
+```
+
+## 사용법 (Usage)
+
+```bash
+# 테스트 실행
+pytest
+
+# 예제 앱 실행
+python src/donga_app/main.py
+# 출력: Hello, world!
+
+# DORA 지표 수집 (GitHub 토큰 필요)
+GITHUB_REPOSITORY=wijiseung04-blip/donga GITHUB_TOKEN=<토큰> python scripts/collect_dora_metrics.py
+```
+
+자세한 내용은 [Wiki](https://github.com/wijiseung04-blip/donga/wiki)의 Getting Started를 참고하세요.
+
+## 기여하기 (Contributing)
+
+기여 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)를 따릅니다. 모든 참여자는 [행동 강령(CODE_OF_CONDUCT.md)](CODE_OF_CONDUCT.md)을 지켜 주세요.
+
+## 라이선스 (License)
+
+이 프로젝트는 [MIT License](LICENSE)로 배포됩니다.
