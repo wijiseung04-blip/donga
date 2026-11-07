@@ -1,0 +1,127 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install flake8
+        run: pip install flake8
+      - name: Lint with flake8
+        run: |
+          # 문법 오류·정의되지 않은 이름이 있으면 실패
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # 나머지 스타일 문제는 경고로만 표시
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+  build:
+    name: Build
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile sources
+        run: python -m compileall -q src scripts
+      - name: Package app
+        run: |
+          mkdir -p dist
+          tar --exclude='__pycache__' -czf dist/donga-app.tar.gz src requirements.txt
+          sha256sum dist/donga-app.tar.gz > dist/SHA256SUMS
+          cat > dist/build-info.json <<EOF
+          {"commit": "${GITHUB_SHA}", "ref": "${GITHUB_REF_NAME}", "run": "${GITHUB_RUN_NUMBER}"}
+          EOF
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: donga-app
+          path: dist/
+          retention-days: 7
+
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    needs: build
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: donga-app
+          path: dist
+      - name: Verify artifact checksum
+        run: |
+          python -c "import hashlib; h, p = open('dist/SHA256SUMS').read().split(); assert hashlib.sha256(open(p, 'rb').read()).hexdigest() == h, 'checksum mismatch'; print('checksum OK:', p)"
+      - name: Smoke test packaged app
+        run: |
+          mkdir -p pkg
+          tar -xzf dist/donga-app.tar.gz -C pkg
+          python pkg/src/donga_app/main.py
+      - name: Run tests
+        run: pytest -q
+
+  deploy:
+    name: Deploy
+    needs: [build, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: donga-app
+          path: dist
+      - name: Check deploy secret
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
+        run: |
+          if [ -z "$DEPLOY_TOKEN" ]; then
+            echo "::error::DEPLOY_TOKEN secret이 설정되지 않았습니다."
+            exit 1
+          fi
+          # 마스킹 확인용: 로그에는 실제 값 대신 *** 로 표시된다
+          echo "DEPLOY_TOKEN: $DEPLOY_TOKEN"
+      - name: Deploy (simulated)
+        run: |
+          mkdir -p release
+          tar -xzf dist/donga-app.tar.gz -C release
+          python3 release/src/donga_app/main.py
+          {
+            echo "## 배포 완료"
+            echo '```json'
+            cat dist/build-info.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
