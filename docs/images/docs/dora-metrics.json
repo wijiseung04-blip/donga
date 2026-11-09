@@ -1,21 +1,10 @@
 {
-  "generatedAt": "2026-11-07T09:43:25.322427Z",
+  "generatedAt": "2026-11-09T13:53:03.190307Z",
   "rangeWeeks": 12,
   "environments": [
     "production"
   ],
   "weeks": [
-    {
-      "week": "2026-08-10",
-      "deployments": 0,
-      "successfulDeployments": 0,
-      "failures": 0,
-      "changeFailureRate": null,
-      "leadTimeHours": null,
-      "leadTimeSamples": 0,
-      "restoreHours": null,
-      "restoreSamples": 0
-    },
     {
       "week": "2026-08-17",
       "deployments": 0,
@@ -134,6 +123,17 @@
       "changeFailureRate": null,
       "leadTimeHours": null,
       "leadTimeSamples": 0,
+      "restoreHours": null,
+      "restoreSamples": 0
+    },
+    {
+      "week": "2026-11-02",
+      "deployments": 1,
+      "successfulDeployments": 1,
+      "failures": 0,
+      "changeFailureRate": 0.0,
+      "leadTimeHours": 0.02,
+      "leadTimeSamples": 1,
       "restoreHours": null,
       "restoreSamples": 0
     }
