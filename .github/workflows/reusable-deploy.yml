@@ -1,0 +1,66 @@
+name: Reusable Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 배포 대상 환경 (production, staging, preview)
+        required: true
+        type: string
+      artifact-name:
+        description: 배포할 빌드 아티팩트 이름
+        required: false
+        type: string
+        default: donga-app
+    secrets:
+      deploy-token:
+        required: true
+    outputs:
+      deployment-url:
+        description: 배포된 주소
+        value: ${{ jobs.deploy.outputs.url }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Check deploy secret
+        env:
+          DEPLOY_TOKEN: ${{ secrets.deploy-token }}
+        run: |
+          if [ -z "$DEPLOY_TOKEN" ]; then
+            echo "::error::deploy-token secret이 전달되지 않았습니다."
+            exit 1
+          fi
+          # 값은 출력하지 않고 존재 여부와 길이만 확인한다
+          echo "deploy-token 확인 완료 (${#DEPLOY_TOKEN}자)"
+
+      - name: Deploy (simulated)
+        id: deploy
+        env:
+          TARGET_ENV: ${{ inputs.environment }}
+        run: |
+          mkdir -p release
+          tar -xzf dist/donga-app.tar.gz -C release
+          python3 release/src/donga_app/main.py
+          url="https://github.com/${GITHUB_REPOSITORY}/deployments/${TARGET_ENV}"
+          echo "url=${url}" >> "$GITHUB_OUTPUT"
+          {
+            echo "## ${TARGET_ENV} 배포 완료"
+            echo '```json'
+            cat dist/build-info.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
