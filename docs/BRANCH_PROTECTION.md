@@ -30,7 +30,7 @@
 저장소가 PR을 강제하지는 않으므로, 아래 흐름은 [CONTRIBUTING.md](../CONTRIBUTING.md)의 약속으로 지킵니다.
 
 1. `main`에 직접 push하지 않고 작업 브랜치에서 PR을 엽니다.
-2. PR마다 실행되는 CI(`build (3.10)` ~ `build (3.13)`)가 모두 통과한 뒤에 머지합니다.
+2. PR마다 실행되는 CI/CD Pipeline(Lint, Build, Test 9개)이 모두 통과한 뒤에 머지합니다.
 3. 셀프 리뷰의 `[MUST]` 스레드를 모두 Resolve한 뒤에 머지합니다.
 
 ## 설정 방법
@@ -72,5 +72,5 @@ PR 필수 규칙을 켜려면 먼저 DORA 데이터를 `main`이 아닌 보호�
 | └ Require review from Code Owners | ✅ |
 | └ Require conversation resolution before merging | ✅ |
 | Require status checks to pass | ✅ |
-| └ Required checks | `build (3.10)`, `build (3.11)`, `build (3.12)`, `build (3.13)` |
+| └ Required checks | `Lint`, `Build`, `Test / Test (<OS>, Python <버전>)` 9개 |
 | └ Require branches to be up to date before merging | ✅ |

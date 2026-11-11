@@ -1,0 +1,23 @@
+name: Cache Benchmark
+
+run-name: Cache Benchmark (cache=${{ inputs.use-cache }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      use-cache:
+        description: pip 캐시 사용 여부
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Benchmark
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      os-list: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      python-versions: '["3.12"]'
+      use-cache: ${{ inputs.use-cache }}

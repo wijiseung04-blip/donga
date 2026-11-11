@@ -2,29 +2,61 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # PR에서는 새 커밋이 오면 이전 실행을 취소하고, main/develop 배포는 중간에 끊지 않는다
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
     shell: bash
 
 jobs:
-  lint:
-    name: Lint
+  changes:
+    name: Detect changes
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      app: ${{ steps.filter.outputs.app }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
         with:
-          python-version: "3.12"
-      - name: Install flake8
-        run: pip install flake8
+          filters: |
+            app:
+              - 'src/**'
+              - 'scripts/**'
+              - 'tests/**'
+              - 'requirements.txt'
+              - 'pytest.ini'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/reusable-*.yml'
+              - '.github/actions/**'
+
+  lint:
+    name: Lint
+    needs: changes
+    # 코드가 바뀌었거나 수동 실행일 때만 실행 (문서만 바뀐 PR은 건너뜀)
+    if: needs.changes.outputs.app == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-project
+        with:
+          extra-packages: flake8
       - name: Lint with flake8
         run: |
           # 문법 오류·정의되지 않은 이름이 있으면 실패
@@ -36,11 +68,10 @@ jobs:
     name: Build
     needs: lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+      - uses: ./.github/actions/setup-project
       - name: Compile sources
         run: python -m compileall -q src scripts
       - name: Package app
@@ -59,69 +90,40 @@ jobs:
           retention-days: 7
 
   test:
-    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    name: Test
     needs: build
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.12", "3.13"]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
-      - name: Install dependencies
-        run: pip install -r requirements.txt
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: donga-app
-          path: dist
-      - name: Verify artifact checksum
-        run: |
-          python -c "import hashlib; h, p = open('dist/SHA256SUMS').read().split(); assert hashlib.sha256(open(p, 'rb').read()).hexdigest() == h, 'checksum mismatch'; print('checksum OK:', p)"
-      - name: Smoke test packaged app
-        run: |
-          mkdir -p pkg
-          tar -xzf dist/donga-app.tar.gz -C pkg
-          python pkg/src/donga_app/main.py
-      - name: Run tests
-        run: pytest -q
+    uses: ./.github/workflows/reusable-test.yml
+    with:
+      os-list: '["ubuntu-latest", "windows-latest", "macos-latest"]'
+      python-versions: '["3.10", "3.12", "3.13"]'
+      artifact-name: donga-app
 
-  deploy:
-    name: Deploy
+  deploy-production:
+    name: Production
     needs: [build, test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: donga-app
-          path: dist
-      - name: Check deploy secret
-        env:
-          DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
-        run: |
-          if [ -z "$DEPLOY_TOKEN" ]; then
-            echo "::error::DEPLOY_TOKEN secret이 설정되지 않았습니다."
-            exit 1
-          fi
-          # 마스킹 확인용: 로그에는 실제 값 대신 *** 로 표시된다
-          echo "DEPLOY_TOKEN: $DEPLOY_TOKEN"
-      - name: Deploy (simulated)
-        run: |
-          mkdir -p release
-          tar -xzf dist/donga-app.tar.gz -C release
-          python3 release/src/donga_app/main.py
-          {
-            echo "## 배포 완료"
-            echo '```json'
-            cat dist/build-info.json
-            echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: production
+    secrets:
+      deploy-token: ${{ secrets.DEPLOY_TOKEN }}
+
+  deploy-staging:
+    name: Staging
+    needs: [build, test]
+    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: staging
+    secrets:
+      deploy-token: ${{ secrets.DEPLOY_TOKEN }}
+
+  deploy-preview:
+    name: Preview
+    needs: [build, test]
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/reusable-deploy.yml
+    with:
+      environment: preview
+    secrets:
+      deploy-token: ${{ secrets.DEPLOY_TOKEN }}

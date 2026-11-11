@@ -71,7 +71,7 @@ Closes #12
 1. 작업 브랜치를 push하고 `main` 대상으로 PR을 엽니다.
 2. PR 제목도 Conventional Commits 형식으로 작성합니다. (Squash merge 시 커밋 메시지가 됩니다.) 호환성이 깨지는 변경은 `feat!:`처럼 표시합니다.
 3. PR 템플릿(`.github/pull_request_template.md`)의 항목을 채웁니다.
-4. CI(`Python application` 워크플로)가 통과해야 합니다.
+4. CI(`CI/CD Pipeline` 워크플로)가 통과해야 합니다.
 5. 리뷰를 받고 `[MUST]` 스레드를 모두 해결합니다.
    - **1인 운영 중(현재)**: 작성자가 [리뷰 가이드](docs/REVIEW_GUIDE.md#6-1인-운영-시-셀프-리뷰)에 따라 셀프 리뷰를 남깁니다. 본인 PR은 승인할 수 없으므로 승인은 요구하지 않습니다.
    - **협업 시**: CODEOWNERS에 지정된 리뷰어 1명 이상의 승인이 필요합니다.

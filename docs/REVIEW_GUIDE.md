@@ -73,4 +73,4 @@
 2. 3장 체크리스트를 기준으로 줄 단위 코멘트에 `[MUST]`/`[SHOULD]` 태그를 붙입니다.
 3. GitHub는 본인 PR에 Approve/Request changes를 허용하지 않으므로 **Comment**로 제출합니다. 리뷰 본문에 태그별 건수 표와 "가이드 기준 판정: Request changes/Approve"를 적습니다.
 4. `[MUST]`는 반영 커밋을 올리고, 스레드에 커밋 해시로 답한 뒤 **Resolve** 합니다. 1인 운영 중에는 브랜치 보호가 미해결 스레드를 막지 않으므로 머지 전에 직접 확인합니다.
-5. CI(`build (3.10)` ~ `build (3.13)`)가 모두 통과하면 머지합니다.
+5. CI/CD Pipeline(Lint, Build, Test 9개)이 모두 통과하면 머지합니다.
