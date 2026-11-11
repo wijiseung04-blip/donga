@@ -1,0 +1,64 @@
+name: Reusable Test
+
+on:
+  workflow_call:
+    inputs:
+      os-list:
+        description: 테스트할 OS 목록 (JSON 배열)
+        type: string
+        default: '["ubuntu-latest"]'
+      python-versions:
+        description: 테스트할 Python 버전 목록 (JSON 배열)
+        type: string
+        default: '["3.12"]'
+      use-cache:
+        description: pip 캐시 사용 여부
+        type: boolean
+        default: true
+      artifact-name:
+        description: 검증할 빌드 아티팩트 이름 (비우면 아티팩트 검증을 건너뜀)
+        type: string
+        default: ""
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ fromJSON(inputs.os-list) }}
+        python-version: ${{ fromJSON(inputs.python-versions) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup-project
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: ${{ inputs.use-cache }}
+
+      - name: Download build artifact
+        if: inputs.artifact-name != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: dist
+
+      - name: Verify artifact checksum
+        if: inputs.artifact-name != ''
+        run: |
+          python -c "import hashlib; h, p = open('dist/SHA256SUMS').read().split(); assert hashlib.sha256(open(p, 'rb').read()).hexdigest() == h, 'checksum mismatch'; print('checksum OK:', p)"
+
+      - name: Smoke test packaged app
+        if: inputs.artifact-name != ''
+        run: |
+          mkdir -p pkg
+          tar -xzf dist/donga-app.tar.gz -C pkg
+          python pkg/src/donga_app/main.py
+
+      - name: Run tests
+        run: pytest -q
