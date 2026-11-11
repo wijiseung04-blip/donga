@@ -72,5 +72,5 @@ PR 필수 규칙을 켜려면 먼저 DORA 데이터를 `main`이 아닌 보호�
 | └ Require review from Code Owners | ✅ |
 | └ Require conversation resolution before merging | ✅ |
 | Require status checks to pass | ✅ |
-| └ Required checks | Lint, Build, Test / Test (<OS>, Python <버전>) 9개 |
+| └ Required checks | `Lint`, `Build`, `Test / Test (<OS>, Python <버전>)` 9개 |
 | └ Require branches to be up to date before merging | ✅ |
