@@ -30,7 +30,7 @@ jobs:
               ? [
                   `@${item.user.login} PR 감사합니다! 🙌`,
                   '',
-                  '- CI(`build (3.10)` ~ `build (3.13)`)가 모두 통과해야 머지할 수 있습니다.',
+                  '- CI/CD Pipeline(Lint, Build, Test 9개)이 모두 통과해야 머지할 수 있습니다.',
                   `- 리뷰는 \`[MUST]\`/\`[SHOULD]\` 태그로 남깁니다. → [리뷰 가이드](${base}/blob/main/docs/REVIEW_GUIDE.md)`,
                   '- 첫 리뷰 목표: **1영업일 이내**',
                 ].join('\n')
