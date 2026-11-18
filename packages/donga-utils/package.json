@@ -22,7 +22,7 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "prettier": "3.0.0"
+    "prettier": "3.10.1"
   },
   "license": "MIT"
 }
