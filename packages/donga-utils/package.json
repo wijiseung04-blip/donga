@@ -1,6 +1,6 @@
 {
   "name": "@wijiseung04-blip/donga-utils",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "donga 프로젝트 공용 유틸리티 (GitHub Packages 배포 실습)",
   "main": "index.js",
   "files": [
