@@ -1,0 +1,64 @@
+name: Dependabot Auto-Merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+  checks: read
+  statuses: read
+
+jobs:
+  auto-merge:
+    name: Auto-merge minor/patch
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Show update info
+        env:
+          DEPS: ${{ steps.metadata.outputs.dependency-names }}
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+        run: |
+          echo "의존성: $DEPS"
+          echo "업데이트 유형: $UPDATE_TYPE"
+
+      - name: Merge after all checks pass (minor/patch only)
+        # major 업데이트는 호환성 확인이 필요하므로 사람이 직접 검토한다
+        if: |
+          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          SELF: Auto-merge minor/patch
+        run: |
+          # 이 Job을 제외한 PR의 모든 체크(CI/CD Pipeline, Docker Publish 등)가 끝날 때까지 기다린다 (최대 20분)
+          for i in $(seq 1 80); do
+            checks=$(gh pr checks "$PR_URL" --json name,bucket --jq "[.[] | select(.name != \"$SELF\")]" || true)
+            total=$(echo "$checks" | jq 'length')
+            pending=$(echo "$checks" | jq '[.[] | select(.bucket == "pending")] | length')
+            failed=$(echo "$checks" | jq '[.[] | select(.bucket == "fail" or .bucket == "cancel")] | length')
+            echo "[$i] 체크 ${total}개 / 진행 중 ${pending}개 / 실패 ${failed}개"
+
+            if [ "$failed" -gt 0 ]; then
+              echo "::error::실패한 체크가 있어 병합하지 않습니다."
+              echo "$checks" | jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | "- \(.name)"'
+              exit 1
+            fi
+            # 다른 워크플로가 시작될 시간을 주기 위해 최소 1분은 기다린다
+            if [ "$i" -ge 4 ] && [ "$total" -gt 0 ] && [ "$pending" -eq 0 ]; then
+              gh pr merge --squash "$PR_URL"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::20분 안에 체크가 끝나지 않아 병합하지 않습니다."
+          exit 1
