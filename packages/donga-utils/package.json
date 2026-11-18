@@ -1,0 +1,28 @@
+{
+  "name": "@wijiseung04-blip/donga-utils",
+  "version": "1.0.0",
+  "description": "donga 프로젝트 공용 유틸리티 (GitHub Packages 배포 실습)",
+  "main": "index.js",
+  "files": [
+    "index.js",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/wijiseung04-blip/donga.git",
+    "directory": "packages/donga-utils"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "prettier": "3.0.0"
+  },
+  "license": "MIT"
+}
