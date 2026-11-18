@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Add to project
-        uses: actions/add-to-project@v0.4.0
+        uses: actions/add-to-project@v2.0.1
         with:
           project-url: https://github.com/users/wijiseung04-blip/projects/3/views/1
           github-token: ${{ secrets.PROJECT_TOKEN }}
