@@ -1,0 +1,89 @@
+name: Publish npm Package
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+    working-directory: packages/donga-utils
+
+jobs:
+  publish:
+    name: Publish to GitHub Packages
+    # donga-utils 전용 태그(donga-utils-v1.0.0 등)로 발행한 릴리스에서만 배포
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.event.release.tag_name, 'donga-utils-v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@wijiseung04-blip"
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Test
+        run: npm test
+
+      - name: Check version matches release tag
+        id: version
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(node -p "require('./package.json').version")
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          if [ -n "$TAG" ] && [ "$TAG" != "donga-utils-v${version}" ]; then
+            echo "::error::릴리스 태그($TAG)와 package.json 버전(${version})이 다릅니다."
+            exit 1
+          fi
+          echo "배포할 버전: ${version}"
+
+      - name: Publish
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  verify:
+    name: Verify install
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@wijiseung04-blip"
+
+      - name: Install published package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.publish.outputs.version }}
+        run: |
+          mkdir verify && cd verify
+          npm init -y > /dev/null
+          npm install "@wijiseung04-blip/donga-utils@${VERSION}" --no-audit --no-fund
+          node -e "const { greet } = require('@wijiseung04-blip/donga-utils'); console.log(greet('GitHub Packages'));"
+          echo "## 설치 검증: @wijiseung04-blip/donga-utils@${VERSION}" >> "$GITHUB_STEP_SUMMARY"
