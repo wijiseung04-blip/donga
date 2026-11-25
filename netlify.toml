@@ -1,0 +1,16 @@
+# Netlify 배포 설정 — main은 프로덕션, PR은 Deploy Preview로 자동 배포된다.
+[build]
+  command = "bash scripts/build-site.sh"
+  publish = "_site"
+
+# 대시보드 데이터는 DORA 워크플로가 수시로 갱신하므로 캐시하지 않는다
+[[headers]]
+  for = "/dora-metrics.json"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
