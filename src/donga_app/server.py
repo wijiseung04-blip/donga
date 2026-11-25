@@ -3,7 +3,9 @@
 Cloud Run 같은 컨테이너 플랫폼에서 실행하기 위한 최소 서버로, 표준 라이브러리만 사용한다.
 
 - GET /         인사말과 배포 버전(JSON)
-- GET /healthz  헬스체크용 상태(JSON)
+- GET /healthz  헬스체크용 상태(JSON). 컨테이너 내부 probe용
+- GET /health   /healthz와 같은 응답. Cloud Run은 z로 끝나는 일부 경로를
+                외부에서 받지 않으므로 외부 헬스체크는 이 경로를 사용한다
 """
 
 import json
@@ -17,7 +19,7 @@ APP_VERSION = os.environ.get("APP_VERSION", "dev")
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == "/healthz":
+        if self.path in ("/healthz", "/health"):
             self._send_json(200, {"status": "ok", "version": APP_VERSION})
         elif self.path == "/":
             self._send_json(200, {"message": greet(), "version": APP_VERSION})

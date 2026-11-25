@@ -29,6 +29,12 @@ def test_healthz_returns_ok(base_url):
     assert body["status"] == "ok"
 
 
+def test_health_alias_returns_ok(base_url):
+    status, body = get_json(f"{base_url}/health")
+    assert status == 200
+    assert body["status"] == "ok"
+
+
 def test_root_returns_greeting(base_url):
     status, body = get_json(f"{base_url}/")
     assert status == 200
