@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "bash scripts/build-site.sh",
+  "outputDirectory": "_site",
+  "ignoreCommand": "if [ \"$VERCEL_ENV\" != production ]; then exit 1; fi; git diff --quiet HEAD^ HEAD -- docs/images/docs scripts/build-site.sh vercel.json",
+  "headers": [
+    {
+      "source": "/dora-metrics.json",
+      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+    },
+    {
+      "source": "/(.*)",
+      "headers": [
+        { "key": "X-Content-Type-Options", "value": "nosniff" },
+        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+      ]
+    }
+  ]
+}
