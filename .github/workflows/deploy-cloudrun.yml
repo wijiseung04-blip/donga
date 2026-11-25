@@ -107,8 +107,9 @@ jobs:
         run: |
           ok=false
           for i in $(seq 1 10); do
-            body=$(curl -fsS --max-time 10 "$URL/healthz" || true)
-            echo "[$i] GET /healthz → ${body:-응답 없음}"
+            # Cloud Run은 외부에서 /healthz를 받지 않으므로 /health로 확인한다
+            body=$(curl -fsS --max-time 10 "$URL/health" || true)
+            echo "[$i] GET /health → ${body:-응답 없음}"
             if echo "$body" | grep -q "\"version\": \"$VERSION\""; then ok=true; break; fi
             sleep 6
           done
@@ -131,5 +132,5 @@ jobs:
             echo "| 버전(커밋) | \`$VERSION\` |"
             echo "| 리비전 | \`$revision\` |"
             echo "| 이전 리비전 | \`${PREVIOUS:-없음}\` |"
-            echo "| GET /healthz | \`$body\` |"
+            echo "| GET /health | \`$body\` |"
           } >> "$GITHUB_STEP_SUMMARY"
