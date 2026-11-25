@@ -90,18 +90,35 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Pull and run
+      - name: Run container and check health
         env:
           IMAGE: ${{ needs.build-and-push.outputs.image }}
         run: |
-          output=$(docker run --rm "$IMAGE")
-          echo "출력: $output"
-          if [ "$output" != "Hello, world!" ]; then
-            echo "::error::컨테이너 출력이 예상과 다릅니다."
+          docker run -d --name donga -p 8080:8080 -e APP_VERSION="${GITHUB_SHA::7}" "$IMAGE"
+
+          # Dockerfile의 HEALTHCHECK가 healthy가 될 때까지 최대 60초 기다린다
+          for _ in $(seq 1 30); do
+            health=$(docker inspect --format '{{.State.Health.Status}}' donga)
+            [ "$health" = "healthy" ] && break
+            sleep 2
+          done
+          echo "컨테이너 상태: $health"
+
+          healthz=$(curl -fsS http://localhost:8080/healthz)
+          root=$(curl -fsS http://localhost:8080/)
+          echo "GET /healthz → $healthz"
+          echo "GET /        → $root"
+          docker logs donga
+          docker rm -f donga > /dev/null
+
+          if [ "$health" != "healthy" ] || ! echo "$root" | grep -q '"Hello, world!"'; then
+            echo "::error::컨테이너 헬스체크 또는 응답 확인에 실패했습니다."
             exit 1
           fi
           {
             echo "## 이미지 실행 검증 완료"
             echo "- 이미지: \`$IMAGE\`"
-            echo "- 출력: \`$output\`"
+            echo "- 헬스 상태: \`$health\`"
+            echo "- GET /healthz: \`$healthz\`"
+            echo "- GET /: \`$root\`"
           } >> "$GITHUB_STEP_SUMMARY"
