@@ -56,7 +56,7 @@ jobs:
           PY
 
       - name: Upload deployment result
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: deployment-result-${{ github.event.deployment.id }}-${{ github.event.deployment_status.id }}
           path: artifacts/deployment-result.json

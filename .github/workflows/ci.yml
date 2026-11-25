@@ -83,7 +83,7 @@ jobs:
           {"commit": "${GITHUB_SHA}", "ref": "${GITHUB_REF_NAME}", "run": "${GITHUB_RUN_NUMBER}"}
           EOF
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: donga-app
           path: dist/
