@@ -1,0 +1,18 @@
+# 로컬에서 운영과 같은 이미지·헬스체크로 실행하기 위한 Compose 설정
+#   docker compose up        → http://localhost:8080/health
+#   docker compose ps        → 상태(STATUS)에 (healthy) 표시
+services:
+  app:
+    image: ghcr.io/wijiseung04-blip/donga:latest
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      APP_VERSION: local
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
