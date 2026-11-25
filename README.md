@@ -128,6 +128,22 @@ GITHUB_REPOSITORY=wijiseung04-blip/donga GITHUB_TOKEN=<토큰> python scripts/co
 
 자세한 내용은 [Wiki](https://github.com/wijiseung04-blip/donga/wiki)의 Getting Started를 참고하세요.
 
+## 배포 (Deployment)
+
+| 대상 | 주소 |
+|---|---|
+| DORA 대시보드 (Vercel) | https://donga-two.vercel.app |
+| API 서버 (Cloud Run) | https://donga-4z36kbbboa-uc.a.run.app/health |
+
+로컬에서 서버를 실행하려면:
+
+```bash
+docker compose up   # 또는 docker run --rm -p 8080:8080 ghcr.io/wijiseung04-blip/donga:latest
+curl http://localhost:8080/health
+```
+
+배포 구조, 헬스체크, 롤백 방법은 [Docker 배포 파이프라인 전략](docs/deploy/docker-pipeline-strategy.md)을 참고하세요.
+
 ## 기여하기 (Contributing)
 
 기여 방법은 [CONTRIBUTING.md](CONTRIBUTING.md)를 따릅니다. 모든 참여자는 [행동 강령(CODE_OF_CONDUCT.md)](CODE_OF_CONDUCT.md)을 지켜 주세요.

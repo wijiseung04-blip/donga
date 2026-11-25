@@ -36,7 +36,7 @@ jobs:
             fi
             # Cloud Run은 요청이 없으면 0대로 줄어들어 첫 응답이 늦을 수 있어 3번까지 재시도한다
             for _ in 1 2 3; do
-              read -r code time < <(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 20 "$url" || echo "000 -")
+              read -r code time < <(curl -s -o /dev/null -w '%{http_code} %{time_total}\n' --max-time 20 "$url" || echo "000 -")
               [ "$code" = "200" ] && break
               sleep 5
             done
