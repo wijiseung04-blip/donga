@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "bash scripts/build-site.sh",
   "outputDirectory": "_site",
-  "ignoreCommand": "git diff --quiet HEAD^ HEAD -- docs/images/docs scripts/build-site.sh vercel.json",
+  "ignoreCommand": "if [ \"$VERCEL_ENV\" != production ]; then exit 1; fi; git diff --quiet HEAD^ HEAD -- docs/images/docs scripts/build-site.sh vercel.json",
   "headers": [
     {
       "source": "/dora-metrics.json",
