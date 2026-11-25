@@ -1,0 +1,135 @@
+name: Deploy to Cloud Run
+
+on:
+  # main에서 Docker 이미지가 새로 빌드·검증되면 이어서 배포한다
+  workflow_run:
+    workflows: ["Docker Publish"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # GitHub OIDC 토큰으로 GCP에 로그인 (키 없는 인증)
+
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+env:
+  SERVICE: donga
+  REGION: ${{ vars.GCP_REGION }}
+  GHCR_IMAGE: ghcr.io/${{ github.repository }}
+  AR_IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/donga/donga
+
+jobs:
+  deploy:
+    name: Deploy
+    # PR 빌드는 제외하고, main push로 성공한 Docker Publish 또는 수동 실행일 때만 배포
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event != 'pull_request')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ steps.deploy.outputs.url }}
+    outputs:
+      url: ${{ steps.deploy.outputs.url }}
+    steps:
+      - name: Resolve image tag
+        id: image
+        env:
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # 자동 배포는 방금 빌드된 커밋의 이미지(sha-xxxxxxx), 수동 실행은 latest를 배포한다
+          if [ -n "$RUN_SHA" ]; then tag="sha-${RUN_SHA::7}"; else tag="latest"; fi
+          docker pull "$GHCR_IMAGE:$tag"
+          revision=$(docker inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "$GHCR_IMAGE:$tag")
+          version="${revision::7}"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "배포할 이미지: $GHCR_IMAGE:$tag (커밋 $version)"
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Copy image to Artifact Registry
+        env:
+          TAG: ${{ steps.image.outputs.tag }}
+          VERSION: ${{ steps.image.outputs.version }}
+        run: |
+          # Cloud Run은 ghcr.io 이미지를 직접 가져오지 못하므로 Artifact Registry로 옮긴다
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker tag "$GHCR_IMAGE:$TAG" "$AR_IMAGE:$VERSION"
+          docker push "$AR_IMAGE:$VERSION"
+
+      - name: Deploy with health probes
+        id: deploy
+        env:
+          VERSION: ${{ steps.image.outputs.version }}
+          RUNTIME_SA: ${{ vars.GCP_RUNTIME_SA }}
+        run: |
+          # 롤백 대비: 지금 트래픽을 받고 있는 리비전을 기록해 둔다 (첫 배포면 비어 있음)
+          previous=$(gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)
+          echo "previous=$previous" >> "$GITHUB_OUTPUT"
+          echo "이전 리비전: ${previous:-없음}"
+
+          # startup probe를 통과하지 못한 리비전에는 트래픽이 가지 않는다
+          gcloud run deploy "$SERVICE" \
+            --image "$AR_IMAGE:$VERSION" \
+            --region "$REGION" \
+            --service-account "$RUNTIME_SA" \
+            --allow-unauthenticated \
+            --port 8080 --cpu 1 --memory 256Mi \
+            --min-instances 0 --max-instances 1 \
+            --set-env-vars "APP_VERSION=$VERSION" \
+            --labels "managed-by=github-actions,commit=$VERSION" \
+            --startup-probe "httpGet.path=/healthz,httpGet.port=8080,periodSeconds=3,timeoutSeconds=2,failureThreshold=10" \
+            --liveness-probe "httpGet.path=/healthz,httpGet.port=8080,periodSeconds=30,timeoutSeconds=3,failureThreshold=3" \
+            --quiet
+
+          url=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "배포 주소: $url"
+
+      - name: Smoke test (rollback on failure)
+        env:
+          URL: ${{ steps.deploy.outputs.url }}
+          VERSION: ${{ steps.image.outputs.version }}
+          PREVIOUS: ${{ steps.deploy.outputs.previous }}
+        run: |
+          ok=false
+          for i in $(seq 1 10); do
+            body=$(curl -fsS --max-time 10 "$URL/healthz" || true)
+            echo "[$i] GET /healthz → ${body:-응답 없음}"
+            if echo "$body" | grep -q "\"version\": \"$VERSION\""; then ok=true; break; fi
+            sleep 6
+          done
+
+          if [ "$ok" != true ]; then
+            echo "::error::새 버전($VERSION)이 헬스체크를 통과하지 못했습니다."
+            if [ -n "$PREVIOUS" ]; then
+              echo "이전 리비전($PREVIOUS)으로 트래픽을 되돌립니다."
+              gcloud run services update-traffic "$SERVICE" --region "$REGION" --to-revisions "$PREVIOUS=100" --quiet
+            fi
+            exit 1
+          fi
+
+          revision=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.latestReadyRevisionName)')
+          {
+            echo "## Cloud Run 배포 완료"
+            echo "| 항목 | 값 |"
+            echo "|---|---|"
+            echo "| 주소 | $URL |"
+            echo "| 버전(커밋) | \`$VERSION\` |"
+            echo "| 리비전 | \`$revision\` |"
+            echo "| 이전 리비전 | \`${PREVIOUS:-없음}\` |"
+            echo "| GET /healthz | \`$body\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
