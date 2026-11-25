@@ -1,25 +1,89 @@
-
 name: Health Check
 
 on:
+  schedule:
+    - cron: "17 * * * *" # 매시 17분
   workflow_dispatch:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   health-check:
+    name: Check live endpoints
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Check deployment URL
+      - name: Check endpoints
+        id: check
         env:
-          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          API_URL: ${{ vars.HEALTH_URL }}
+          SITE_URL: https://donga-two.vercel.app/build-info.json
         run: |
-          if [ -z "$HEALTH_URL" ]; then
-            echo "HEALTH_URL is not configured."
-            echo "Deploy the application before enabling health checks."
-            exit 0
-          fi
+          failed=0
+          {
+            echo "## 헬스체크 결과"
+            echo "| 대상 | 주소 | 상태 | 응답 시간 |"
+            echo "|---|---|---|---|"
+          } > report.md
 
-          echo "HEALTH_URL is configured."
-          echo "Run an actual health check after deployment."
+          check() {
+            local name="$1" url="$2" code="000" time="-"
+            if [ -z "$url" ]; then
+              echo "| $name | (미설정) | ⚠️ 건너뜀 | - |" >> report.md
+              return
+            fi
+            # Cloud Run은 요청이 없으면 0대로 줄어들어 첫 응답이 늦을 수 있어 3번까지 재시도한다
+            for _ in 1 2 3; do
+              read -r code time < <(curl -s -o /dev/null -w '%{http_code} %{time_total}' --max-time 20 "$url" || echo "000 -")
+              [ "$code" = "200" ] && break
+              sleep 5
+            done
+            if [ "$code" = "200" ]; then
+              echo "| $name | $url | ✅ $code | ${time}s |" >> report.md
+            else
+              echo "| $name | $url | ❌ $code | ${time}s |" >> report.md
+              failed=1
+            fi
+          }
+
+          check "API (Cloud Run)" "$API_URL"
+          check "대시보드 (Vercel)" "$SITE_URL"
+
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+
+      - name: Open or close incident issue
+        uses: actions/github-script@v7
+        env:
+          FAILED: ${{ steps.check.outputs.failed }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const label = 'incident';
+            const title = '🚨 헬스체크 실패';
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const report = fs.readFileSync('report.md', 'utf8');
+
+            const { data: open } = await github.rest.issues.listForRepo({ owner, repo, state: 'open', labels: label });
+            const existing = open.find((i) => i.title === title);
+
+            if (process.env.FAILED === '1') {
+              try {
+                await github.rest.issues.getLabel({ owner, repo, name: label });
+              } catch {
+                await github.rest.issues.createLabel({ owner, repo, name: label, color: 'd73a4a', description: '서비스 장애' });
+              }
+              const body = `${report}\n실행 기록: ${runUrl}\n`;
+              if (existing) {
+                await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body });
+              } else {
+                await github.rest.issues.create({ owner, repo, title, body, labels: [label] });
+              }
+              core.setFailed('헬스체크에 실패한 대상이 있습니다.');
+            } else if (existing) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: existing.number, body: `✅ 복구 확인\n\n${report}\n실행 기록: ${runUrl}\n` });
+              await github.rest.issues.update({ owner, repo, issue_number: existing.number, state: 'closed', state_reason: 'completed' });
+            }
